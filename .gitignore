@@ -1,0 +1,56 @@
+# Project Alpha-Nexus .gitignore
+
+# Python virtual environment
+venv/
+.env
+.env.local
+.env.*.local
+
+# Python cache and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+*.cover
+*.py,cover
+
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.whl
+
+# Data and outputs
+data/
+outputs/
+*.parquet
+*.csv
+*.jsonl
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Temporary files
+tmp/
+temp/
