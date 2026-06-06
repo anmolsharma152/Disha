@@ -127,14 +127,16 @@ def calculate_skill_match(job: Dict[str, Any]) -> tuple[float, Set[str], Set[str
 
 
 def calculate_comp_fit(job: Dict[str, Any]) -> tuple[str, bool]:
-    """Calculate compensation fit."""
+    """Calculate compensation fit — India-first (INR, LPA, Crores)."""
     payout_mid = job.get("payout_midpoint") or 0
-    # Convert to INR if needed (assuming USD if > 10000)
-    if payout_mid > 10000 and payout_mid < 1_000_000:
-        # Likely USD, convert at 83 INR/USD
-        payout_mid_inr = payout_mid * 83
+    currency = job.get("currency", "INR").upper()
+    
+    # India-first: assume INR unless explicitly marked otherwise
+    # Indian CTC typically 5L-3Cr range. USD roles would be marked currency="USD"
+    if currency == "USD":
+        payout_mid_inr = payout_mid * 83  # explicit USD conversion
     else:
-        payout_mid_inr = payout_mid
+        payout_mid_inr = payout_mid  # already INR
     
     meets_min = payout_mid_inr >= USER_PROFILE["min_base_salary_inr"]
     fit = "above" if meets_min else "below"
@@ -259,6 +261,8 @@ def node_career_strategy(state: AgentState) -> AgentState:
                 "fit": comp_fit,
                 "meets_minimum": meets_min,
                 "currency": "INR",
+                "display_lpa": round((job.get("payout_midpoint") or 0) / 100000, 1),
+                "display_crores": round((job.get("payout_midpoint") or 0) / 10000000, 2),
             },
             "experience_fit": exp_fit,
             "remote_fit": remote_fit,
