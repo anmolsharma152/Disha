@@ -1,12 +1,8 @@
-# Alpha-Nexus OS 🧠
-
-[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/)
-[![LangGraph](https://img.shields.io/badge/built-with-langgraph-orange)]()
-[![PostgreSQL](https://img.shields.io/badge/database-postgres%2Bpgvector-green)]()
+# Disha 
 
 ### Description
 
-Alpha-Nexus OS is a modular, agent-driven Personal Intelligence system designed to automate market intelligence and career strategy. Built for the India-centric tech landscape, it orchestrates specialized agents—Scraper, Financial, Career, Learning, and Reviewer—to convert noisy data into actionable, high-signal insights for AI/ML professionals.
+Disha is a modular, agent-driven Personal Intelligence system designed to automate market intelligence and career strategy. Built for the India-centric tech landscape, it orchestrates specialized agents—Scraper, Financial, Career, Learning, and Reviewer—to convert noisy data into actionable, high-signal insights for AI/ML professionals.
 
 ### Key Pillars
 
@@ -15,9 +11,9 @@ Alpha-Nexus OS is a modular, agent-driven Personal Intelligence system designed 
 - **Production-Ready:** Async FastAPI backend, structured vector storage (pgvector), and decoupled UI.
 - **Hyper-Personalized:** Embedded profile matching for IIT Mandi/Data Science specializations.
 
-# Project Alpha-Nexus
+# Project Disha
 
-> **Automated Market Intelligence & Career Optimization Platform** — _Alpha-Nexus OS_
+> **Automated Market Intelligence & Career Optimization Platform** — _Disha_
 
 A production-grade, multi-agent system built on **LangGraph** that autonomously scrapes corporate career pages and financial data, performs investment analysis, and matches opportunities against hyper-personalized user profiles — all orchestrated through a Supervisor pattern with cyclic state management. **Built for Anmol Sharma (IIT Mandi, Data Science & AI).**
 
@@ -136,7 +132,7 @@ A production-grade, multi-agent system built on **LangGraph** that autonomously 
 
 ```bash
 # Clone and setup
-cd /home/anmol/Projects/alpha_nexus
+cd /home/anmol/Projects/Disha
 
 # Activate virtual environment
 source venv/bin/activate
@@ -163,7 +159,7 @@ uvicorn api.server:app --reload --host 0.0.0.0 --port 8000
 ## Project Structure
 
 ```
-alpha_nexus/
+Disha/
 ├── main.py                      # LangGraph compilation, CLI entry point
 ├── schemas.py                   # Pydantic v2 models (CompanyMetrics, JobOpening, AgentState)
 ├── fetch_rss.py                 # Legacy RSS scraper (reference)
@@ -212,5 +208,5 @@ This system is **hyper-personalized** to your exact background:
 
 ## License
 
-Proprietary — **Project Alpha-Nexus OS** internal use only.
+Proprietary — **Project Disha** internal use only.
 
