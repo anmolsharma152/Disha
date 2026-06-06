@@ -189,7 +189,7 @@ class PlaywrightScrapeOutput(BaseModel):
 
 @tool("fetch_webpage_playwright", args_schema=PlaywrightScrapeInput, return_direct=False)
 def fetch_webpage_playwright(
-    url: str,
+    url: HttpUrl,
     wait_for_selector: Optional[str] = None,
     wait_for_timeout: int = 5000,
     extract_markdown: bool = True,
@@ -212,14 +212,16 @@ def fetch_webpage_playwright(
     """
     import datetime
 
-    logger.info(f"[STUB] Playwright scraping: {url}")
+    # Convert HttpUrl to string (fixes Pydantic validation bug)
+    url_str = str(url)
+    logger.info(f"[STUB] Playwright scraping: {url_str}")
 
     # Stub response for testing
     return PlaywrightScrapeOutput(
-        url=url,
-        html=f"<html><body><h1>Stub Page for {url}</h1><p>This is a stubbed Playwright response.</p></body></html>",
-        markdown=f"# Stub Page for {url}\n\nThis is a stubbed Playwright response.",
-        title=f"Stub Page - {url}",
+        url=url_str,
+        html=f"<html><body><h1>Stub Page for {url_str}</h1><p>This is a stubbed Playwright response.</p></body></html>",
+        markdown=f"# Stub Page for {url_str}\n\nThis is a stubbed Playwright response.",
+        title=f"Stub Page - {url_str}",
         metadata={
             "scraper": "playwright-stub",
             "wait_for_selector": wait_for_selector,

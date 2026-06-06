@@ -1,14 +1,14 @@
 """
-Project Alpha-Nexus - Database Layer
-SQLAlchemy models and connection for persistent storage.
+Project Alpha-Nexus - Database Layer (Async PostgreSQL + pgvector)
+SQLAlchemy 2.0 async models with pgvector support for embeddings.
 """
 
 from __future__ import annotations
 
 import os
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Generator, Optional
+from typing import AsyncGenerator, Optional, List
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -23,33 +23,49 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    select,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from sqlalchemy import ARRAY, Float
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 # Import our Pydantic schemas for reference
 from schemas import CompanyMetrics as CompanyMetricsSchema
 from schemas import JobOpening as JobOpeningSchema
 from schemas import RemotePolicy, ExperienceLevel, ScraperSource
 
-
 # ══════════════════════════════════════════════════════════════════
-# Database Configuration
+# Async Database Configuration
 # ══════════════════════════════════════════════════════════════════
 
-# Use SQLite for dev, PostgreSQL via env var for prod
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./alpha_nexus.db")
+# Async PostgreSQL URL with pgvector support
+# Default to SQLite for local dev if no DATABASE_URL set
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./alpha_nexus.db")
 
-# Engine configuration
+# Ensure async driver
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+elif DATABASE_URL.startswith("postgresql+psycopg://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg://", "postgresql+asyncpg://")
+elif DATABASE_URL.startswith("sqlite://"):
+    DATABASE_URL = DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://")
+
+# Async engine configuration
 if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
+    async_engine: AsyncEngine = create_async_engine(
         DATABASE_URL,
         connect_args={"check_same_thread": False},
         echo=False,
     )
 else:
-    engine = create_engine(
+    async_engine = create_async_engine(
         DATABASE_URL,
         pool_pre_ping=True,
         pool_size=10,
@@ -57,7 +73,13 @@ else:
         echo=False,
     )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+AsyncSessionLocal = async_sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=async_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -80,7 +102,7 @@ class TimestampMixin:
 class UUIDMixin:
     """Mixin for UUID primary key."""
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True) if not DATABASE_URL.startswith("sqlite") else Text,
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid4,
     )
@@ -132,12 +154,12 @@ class CompanyMetrics(Base, TimestampMixin, UUIDMixin):
     confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     fiscal_period: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
-    # Computed fields stored as JSON for flexibility
-    extra_data: Mapped[dict] = mapped_column(
-        SQLiteJSON if DATABASE_URL.startswith("sqlite") else JSON,
-        nullable=False,
-        default=dict,
-    )
+    # Embedded representation for vector search (pgvector)
+    # 1536 dimensions for OpenAI ada-002, 3072 for text-embedding-3-large
+    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+
+    # Computed fields stored as JSON
+    extra_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
     __table_args__ = (
         Index("ix_company_metrics_name_date", "company_name", "created_at"),
@@ -177,7 +199,6 @@ class CompanyMetrics(Base, TimestampMixin, UUIDMixin):
             "last_updated": self.updated_at,
             "scraped_at": self.created_at,
         }
-        # Merge extra_data
         data.update(self.extra_data or {})
         return CompanyMetricsSchema.model_validate(data)
 
@@ -195,54 +216,34 @@ class JobOpening(Base, TimestampMixin, UUIDMixin):
     location_raw: Mapped[str] = mapped_column(Text, nullable=False)
     location_city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     location_state: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    location_country: Mapped[str] = mapped_column(String(2), nullable=False, default="US")
-    remote_policy: Mapped[str] = mapped_column(
-        String(20), nullable=False, default=RemotePolicy.UNKNOWN.value
-    )
+    location_country: Mapped[str] = mapped_column(String(2), nullable=False, default="IN")  # India default
+    remote_policy: Mapped[str] = mapped_column(String(20), nullable=False, default=RemotePolicy.UNKNOWN.value)
     timezone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # Role Classification
-    experience_level: Mapped[str] = mapped_column(
-        String(20), nullable=False, default=ExperienceLevel.UNKNOWN.value
-    )
+    experience_level: Mapped[str] = mapped_column(String(20), nullable=False, default=ExperienceLevel.UNKNOWN.value)
     department: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     team: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     employment_type: Mapped[str] = mapped_column(String(20), nullable=False, default="full_time")
 
     # Tech Stack & Skills (stored as JSON arrays)
-    tech_stack: Mapped[list] = mapped_column(
-        SQLiteJSON if DATABASE_URL.startswith("sqlite") else JSON,
-        nullable=False,
-        default=list,
-    )
-    skills_required: Mapped[list] = mapped_column(
-        SQLiteJSON if DATABASE_URL.startswith("sqlite") else JSON,
-        nullable=False,
-        default=list,
-    )
-    skills_preferred: Mapped[list] = mapped_column(
-        SQLiteJSON if DATABASE_URL.startswith("sqlite") else JSON,
-        nullable=False,
-        default=list,
-    )
-    certifications: Mapped[list] = mapped_column(
-        SQLiteJSON if DATABASE_URL.startswith("sqlite") else JSON,
-        nullable=False,
-        default=list,
-    )
+    tech_stack: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    skills_required: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    skills_preferred: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    certifications: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
-    # Compensation
+    # Compensation (INR for India focus)
     payout_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     payout_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     equity_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     equity_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     bonus_target: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     sign_on_bonus: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR")
     compensation_source: Mapped[str] = mapped_column(String(20), nullable=False, default="estimated")
     compensation_confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.3)
 
-    # Visa & Legal
+    # Visa & Legal (mostly N/A for India roles, but kept for completeness)
     visa_sponsorship: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     h1b_eligible: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     security_clearance: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
@@ -263,17 +264,17 @@ class JobOpening(Base, TimestampMixin, UUIDMixin):
     application_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     job_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
+    # Embedded representation for vector similarity search
+    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+
     # Computed fields
-    extra_data: Mapped[dict] = mapped_column(
-        SQLiteJSON if DATABASE_URL.startswith("sqlite") else JSON,
-        nullable=False,
-        default=dict,
-    )
+    extra_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
     __table_args__ = (
         Index("ix_job_openings_company_active", "company_name", "is_active"),
         Index("ix_job_openings_location_active", "location_city", "is_active"),
         Index("ix_job_openings_posted_date", "posted_date"),
+        Index("ix_job_openings_india_remote", "location_country", "remote_policy", "is_active"),
         UniqueConstraint("job_hash", name="uq_job_hash"),
     )
 
@@ -335,28 +336,86 @@ class JobOpening(Base, TimestampMixin, UUIDMixin):
 
 
 # ══════════════════════════════════════════════════════════════════
-# Repository Classes
+# RAG/Resume Models (for Phase 2+)
+# ══════════════════════════════════════════════════════════════════
+
+class UserProfile(Base, TimestampMixin, UUIDMixin):
+    """User profile with embedded skills for RAG matching."""
+    __tablename__ = "user_profiles"
+
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    education: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    location: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    skills: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    target_roles: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    min_salary_inr: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    preferences: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+
+
+class Resume(Base, TimestampMixin, UUIDMixin):
+    """Parsed resume data with embeddings."""
+    __tablename__ = "resumes"
+
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    parsed_sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    skills_extracted: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    experience_years: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+
+
+class DocumentChunk(Base, TimestampMixin, UUIDMixin):
+    """Generic document chunks for RAG."""
+    __tablename__ = "document_chunks"
+
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # arxiv, blog, pdf, etc.
+    source_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+
+    __table_args__ = (
+        Index("ix_document_chunks_source", "source_type", "source_id"),
+    )
+
+
+# ══════════════════════════════════════════════════════════════════
+# Repository Classes (Async)
 # ══════════════════════════════════════════════════════════════════
 
 class CompanyMetricsRepository:
-    """Repository for CompanyMetrics CRUD operations."""
+    """Async repository for CompanyMetrics CRUD operations."""
 
-    def __init__(self, session):
+    def __init__(self, session: AsyncSession):
         self.session = session
 
-    def upsert(self, metrics: CompanyMetricsSchema) -> CompanyMetrics:
+    async def upsert(self, metrics: CompanyMetricsSchema) -> CompanyMetrics:
         """Insert or update company metrics based on ticker+source_url."""
         existing = None
         if metrics.ticker:
-            existing = self.session.query(CompanyMetrics).filter(
-                CompanyMetrics.ticker == metrics.ticker,
-                CompanyMetrics.source_url == metrics.source_url,
-            ).first()
+            result = await self.session.execute(
+                select(CompanyMetrics).where(
+                    CompanyMetrics.ticker == metrics.ticker,
+                    CompanyMetrics.source_url == metrics.source_url,
+                )
+            )
+            existing = result.scalar_one_or_none()
         if not existing and metrics.company_name:
-            existing = self.session.query(CompanyMetrics).filter(
-                CompanyMetrics.company_name == metrics.company_name,
-                CompanyMetrics.source_url == metrics.source_url,
-            ).first()
+            result = await self.session.execute(
+                select(CompanyMetrics).where(
+                    CompanyMetrics.company_name == metrics.company_name,
+                    CompanyMetrics.source_url == metrics.source_url,
+                )
+            )
+            existing = result.scalar_one_or_none()
 
         if existing:
             # Update existing
@@ -364,7 +423,8 @@ class CompanyMetricsRepository:
                 if hasattr(existing, key) and key not in ("id", "created_at"):
                     setattr(existing, key, value)
             existing.updated_at = datetime.utcnow()
-            self.session.commit()
+            await self.session.commit()
+            await self.session.refresh(existing)
             return existing
         else:
             # Insert new
@@ -399,40 +459,74 @@ class CompanyMetricsRepository:
                 extra_data={},
             )
             self.session.add(db_metrics)
-            self.session.commit()
-            self.session.refresh(db_metrics)
+            await self.session.commit()
+            await self.session.refresh(db_metrics)
             return db_metrics
 
-    def get_latest_by_ticker(self, ticker: str) -> Optional[CompanyMetrics]:
-        return self.session.query(CompanyMetrics).filter(
-            CompanyMetrics.ticker == ticker
-        ).order_by(CompanyMetrics.created_at.desc()).first()
+    async def get_latest_by_ticker(self, ticker: str) -> Optional[CompanyMetrics]:
+        result = await self.session.execute(
+            select(CompanyMetrics)
+            .where(CompanyMetrics.ticker == ticker)
+            .order_by(CompanyMetrics.created_at.desc())
+        )
+        return result.scalar_one_or_none()
 
-    def get_all_recent(self, days: int = 30) -> list[CompanyMetrics]:
+    async def get_all_recent(self, days: int = 30) -> List[CompanyMetrics]:
         from datetime import timedelta
         cutoff = datetime.utcnow() - timedelta(days=days)
-        return self.session.query(CompanyMetrics).filter(
-            CompanyMetrics.created_at >= cutoff
-        ).order_by(CompanyMetrics.created_at.desc()).all()
+        result = await self.session.execute(
+            select(CompanyMetrics)
+            .where(CompanyMetrics.created_at >= cutoff)
+            .order_by(CompanyMetrics.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def vector_search(self, query_embedding: List[float], limit: int = 10) -> List[CompanyMetrics]:
+        """Semantic search using cosine similarity on embedding arrays."""
+        # For PostgreSQL with pgvector, use cosine_distance
+        # For SQLite/array, we'll do Python-side filtering for now
+        result = await self.session.execute(
+            select(CompanyMetrics)
+            .where(CompanyMetrics.embedding.is_not(None))
+            .limit(limit * 5)  # Get more candidates for Python-side sorting
+        )
+        candidates = list(result.scalars().all())
+        
+        # Python-side cosine similarity (for SQLite dev)
+        if candidates:
+            import numpy as np
+            query_vec = np.array(query_embedding)
+            scored = []
+            for c in candidates:
+                if c.embedding:
+                    cand_vec = np.array(c.embedding)
+                    # Cosine similarity
+                    sim = np.dot(query_vec, cand_vec) / (np.linalg.norm(query_vec) * np.linalg.norm(cand_vec))
+                    scored.append((sim, c))
+            scored.sort(key=lambda x: -x[0])
+            return [c for _, c in scored[:limit]]
+        return []
 
 
 class JobOpeningRepository:
-    """Repository for JobOpening CRUD operations."""
+    """Async repository for JobOpening CRUD operations."""
 
-    def __init__(self, session):
+    def __init__(self, session: AsyncSession):
         self.session = session
 
-    def upsert(self, job: JobOpeningSchema) -> JobOpening:
+    async def upsert(self, job: JobOpeningSchema) -> JobOpening:
         """Insert or update job based on job_hash or source_url."""
         existing = None
         if job.job_hash:
-            existing = self.session.query(JobOpening).filter(
-                JobOpening.job_hash == job.job_hash
-            ).first()
+            result = await self.session.execute(
+                select(JobOpening).where(JobOpening.job_hash == job.job_hash)
+            )
+            existing = result.scalar_one_or_none()
         if not existing:
-            existing = self.session.query(JobOpening).filter(
-                JobOpening.source_url == job.source_url
-            ).first()
+            result = await self.session.execute(
+                select(JobOpening).where(JobOpening.source_url == job.source_url)
+            )
+            existing = result.scalar_one_or_none()
 
         if existing:
             # Update
@@ -440,7 +534,8 @@ class JobOpeningRepository:
                 if hasattr(existing, key) and key not in ("id", "created_at"):
                     setattr(existing, key, value)
             existing.updated_at = datetime.utcnow()
-            self.session.commit()
+            await self.session.commit()
+            await self.session.refresh(existing)
             return existing
         else:
             # Insert
@@ -490,63 +585,186 @@ class JobOpeningRepository:
                 extra_data={},
             )
             self.session.add(db_job)
-            self.session.commit()
-            self.session.refresh(db_job)
+            await self.session.commit()
+            await self.session.refresh(db_job)
             return db_job
 
-    def get_active_by_company(self, company_name: str) -> list[JobOpening]:
-        return self.session.query(JobOpening).filter(
-            JobOpening.company_name == company_name,
-            JobOpening.is_active == True,
-        ).order_by(JobOpening.posted_date.desc()).all()
+    async def get_active_by_company(self, company_name: str) -> List[JobOpening]:
+        result = await self.session.execute(
+            select(JobOpening)
+            .where(
+                JobOpening.company_name == company_name,
+                JobOpening.is_active == True,
+            )
+            .order_by(JobOpening.posted_date.desc())
+        )
+        return result.scalars().all()
 
-    def get_recent(self, days: int = 30, limit: int = 100) -> list[JobOpening]:
+    async def get_recent(self, days: int = 30, limit: int = 100) -> List[JobOpening]:
         from datetime import timedelta
         cutoff = datetime.utcnow() - timedelta(days=days)
-        return self.session.query(JobOpening).filter(
-            JobOpening.posted_date >= cutoff,
-            JobOpening.is_active == True,
-        ).order_by(JobOpening.posted_date.desc()).limit(limit).all()
+        result = await self.session.execute(
+            select(JobOpening)
+            .where(
+                JobOpening.posted_date >= cutoff,
+                JobOpening.is_active == True,
+            )
+            .order_by(JobOpening.posted_date.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def get_india_remote_jobs(self, limit: int = 50) -> List[JobOpening]:
+        """Get jobs relevant to India targeting (remote or India locations)."""
+        result = await self.session.execute(
+            select(JobOpening)
+            .where(
+                JobOpening.is_active == True,
+                JobOpening.location_country == "IN",
+            )
+            .order_by(JobOpening.posted_date.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def vector_search(self, query_embedding: List[float], limit: int = 10) -> List[JobOpening]:
+        """Semantic search using cosine similarity on embedding arrays."""
+        result = await self.session.execute(
+            select(JobOpening)
+            .where(
+                JobOpening.embedding.is_not(None),
+                JobOpening.is_active == True,
+            )
+            .limit(limit * 5)
+        )
+        candidates = list(result.scalars().all())
+        
+        if candidates:
+            import numpy as np
+            query_vec = np.array(query_embedding)
+            scored = []
+            for c in candidates:
+                if c.embedding:
+                    cand_vec = np.array(c.embedding)
+                    sim = np.dot(query_vec, cand_vec) / (np.linalg.norm(query_vec) * np.linalg.norm(cand_vec))
+                    scored.append((sim, c))
+            scored.sort(key=lambda x: -x[0])
+            return [c for _, c in scored[:limit]]
+        return []
+
+
+class DocumentChunkRepository:
+    """Async repository for DocumentChunk (RAG)."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def upsert_chunk(self, chunk: DocumentChunk) -> DocumentChunk:
+        existing = await self.session.execute(
+            select(DocumentChunk).where(
+                DocumentChunk.source_type == chunk.source_type,
+                DocumentChunk.source_id == chunk.source_id,
+                DocumentChunk.chunk_index == chunk.chunk_index,
+            )
+        )
+        existing = existing.scalar_one_or_none()
+
+        if existing:
+            for key, value in chunk.__dict__.items():
+                if not key.startswith("_") and key not in ("id", "created_at"):
+                    setattr(existing, key, value)
+            existing.updated_at = datetime.utcnow()
+            await self.session.commit()
+            await self.session.refresh(existing)
+            return existing
+        else:
+            self.session.add(chunk)
+            await self.session.commit()
+            await self.session.refresh(chunk)
+            return chunk
+
+    async def vector_search(
+        self,
+        query_embedding: List[float],
+        source_types: Optional[List[str]] = None,
+        limit: int = 10,
+    ) -> List[DocumentChunk]:
+        """Semantic search across document chunks using cosine similarity."""
+        query = (
+            select(DocumentChunk)
+            .where(DocumentChunk.embedding.is_not(None))
+            .limit(limit * 5)
+        )
+        if source_types:
+            query = query.where(DocumentChunk.source_type.in_(source_types))
+        result = await self.session.execute(query)
+        candidates = list(result.scalars().all())
+        
+        if candidates:
+            import numpy as np
+            query_vec = np.array(query_embedding)
+            scored = []
+            for c in candidates:
+                if c.embedding:
+                    cand_vec = np.array(c.embedding)
+                    sim = np.dot(query_vec, cand_vec) / (np.linalg.norm(query_vec) * np.linalg.norm(cand_vec))
+                    scored.append((sim, c))
+            scored.sort(key=lambda x: -x[0])
+            return [c for _, c in scored[:limit]]
+        return []
 
 
 # ══════════════════════════════════════════════════════════════════
-# Database Utilities
+# Database Utilities (Async)
 # ══════════════════════════════════════════════════════════════════
 
-def init_db() -> None:
-    """Initialize database tables."""
-    Base.metadata.create_all(bind=engine)
+async def init_db() -> None:
+    """Initialize database tables (includes pgvector extension)."""
+    # For PostgreSQL, ensure pgvector extension exists
+    if not DATABASE_URL.startswith("sqlite"):
+        async with async_engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
-def drop_db() -> None:
+async def drop_db() -> None:
     """Drop all tables (use with caution!)."""
-    Base.metadata.drop_all(bind=engine)
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
-@contextmanager
-def get_db_session() -> Generator:
-    """Context manager for database sessions."""
-    session = SessionLocal()
+@asynccontextmanager
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Async context manager for database sessions."""
+    session = AsyncSessionLocal()
     try:
         yield session
-        session.commit()
+        await session.commit()
     except Exception:
-        session.rollback()
+        await session.rollback()
         raise
     finally:
-        session.close()
+        await session.close()
 
 
-def get_company_repo() -> CompanyMetricsRepository:
+async def get_company_repo() -> CompanyMetricsRepository:
     """Get a company metrics repository with a new session."""
-    session = SessionLocal()
+    session = AsyncSessionLocal()
     return CompanyMetricsRepository(session)
 
 
-def get_job_repo() -> JobOpeningRepository:
+async def get_job_repo() -> JobOpeningRepository:
     """Get a job opening repository with a new session."""
-    session = SessionLocal()
+    session = AsyncSessionLocal()
     return JobOpeningRepository(session)
+
+
+async def get_doc_repo() -> DocumentChunkRepository:
+    """Get a document chunk repository with a new session."""
+    session = AsyncSessionLocal()
+    return DocumentChunkRepository(session)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -554,66 +772,74 @@ def get_job_repo() -> JobOpeningRepository:
 # ══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Initializing Database")
-    print("=" * 60)
+    import asyncio
+    from sqlalchemy import text
 
-    init_db()
-    print(f"Database: {DATABASE_URL}")
-    print("Tables created:")
-    for table in Base.metadata.sorted_tables:
-        print(f"  - {table.name}")
+    async def test_db():
+        print("=" * 60)
+        print("Initializing Async Database")
+        print("=" * 60)
 
-    # Test write/read
-    with get_db_session() as session:
-        company_repo = CompanyMetricsRepository(session)
-        job_repo = JobOpeningRepository(session)
+        await init_db()
+        print(f"Database: {DATABASE_URL}")
+        print("Tables created:")
+        for table in Base.metadata.sorted_tables:
+            print(f"  - {table.name}")
 
-        # Create test company metrics
-        from schemas import CompanyMetrics as CM
-        test_metrics = CM(
-            company_name="Test Corp",
-            ticker="TEST",
-            market_cap=1_000_000_000,
-            revenue_ttm=100_000_000,
-            revenue_growth_yoy=25.0,
-            headcount_current=500,
-            headcount_6m_ago=400,
-            source_url="https://example.com/test",
-            source_domain="example.com",
-        )
-        company_repo.upsert(test_metrics)
-        print("\n✓ Company metrics inserted")
+        # Test write/read
+        async with get_db_session() as session:
+            company_repo = CompanyMetricsRepository(session)
+            job_repo = JobOpeningRepository(session)
 
-        # Read back
-        retrieved = company_repo.get_latest_by_ticker("TEST")
-        print(f"✓ Retrieved: {retrieved.company_name} ({retrieved.ticker}) - ${retrieved.market_cap/1e9:.1f}B")
+            # Create test company metrics
+            from schemas import CompanyMetrics as CM
+            test_metrics = CM(
+                company_name="Test Corp India",
+                ticker="TEST",
+                market_cap=1_000_000_000,
+                revenue_ttm=100_000_000,
+                revenue_growth_yoy=25.0,
+                headcount_current=500,
+                headcount_6m_ago=400,
+                source_url="https://example.com/test",
+                source_domain="example.com",
+            )
+            await company_repo.upsert(test_metrics)
+            print("\n✓ Company metrics inserted")
 
-        # Create test job
-        from schemas import JobOpening as JO
-        from schemas import RemotePolicy, ExperienceLevel
-        test_job = JO(
-            company_name="Test Corp",
-            title="Senior Software Engineer",
-            location_raw="San Francisco, CA",
-            location_city="San Francisco",
-            location_state="CA",
-            remote_policy=RemotePolicy.HYBRID,
-            experience_level=ExperienceLevel.SENIOR,
-            tech_stack=["Python", "PostgreSQL", "AWS"],
-            payout_min=160000,
-            payout_max=220000,
-            description_raw="We are hiring...",
-            source_url="https://example.com/jobs/1",
-            source_domain="example.com",
-            job_hash="abc123",
-        )
-        job_repo.upsert(test_job)
-        print("✓ Job opening inserted")
+            # Read back
+            retrieved = await company_repo.get_latest_by_ticker("TEST")
+            print(f"✓ Retrieved: {retrieved.company_name} ({retrieved.ticker}) - ${retrieved.market_cap/1e9:.1f}B")
 
-        jobs = job_repo.get_active_by_company("Test Corp")
-        print(f"✓ Retrieved {len(jobs)} active jobs for Test Corp")
+            # Create test job
+            from schemas import JobOpening as JO
+            from schemas import RemotePolicy, ExperienceLevel
+            test_job = JO(
+                company_name="Test Corp India",
+                title="Senior ML Engineer - Agentic AI",
+                location_raw="Bangalore, Karnataka (Hybrid)",
+                location_city="Bangalore",
+                location_state="Karnataka",
+                location_country="IN",
+                remote_policy=RemotePolicy.HYBRID,
+                experience_level=ExperienceLevel.SENIOR,
+                tech_stack=["Python", "PyTorch", "LangGraph", "Kubernetes"],
+                payout_min=4_500_000,
+                payout_max=6_500_000,
+                currency="INR",
+                description_raw="We are hiring for agentic AI...",
+                source_url="https://example.com/jobs/1",
+                source_domain="example.com",
+                job_hash="abc123",
+            )
+            await job_repo.upsert(test_job)
+            print("✓ Job opening inserted")
 
-    print("\n" + "=" * 60)
-    print("Database test passed!")
-    print("=" * 60)
+            jobs = await job_repo.get_active_by_company("Test Corp India")
+            print(f"✓ Retrieved {len(jobs)} active jobs for Test Corp India")
+
+        print("\n" + "=" * 60)
+        print("Async Database test passed!")
+        print("=" * 60)
+
+    asyncio.run(test_db())

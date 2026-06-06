@@ -310,6 +310,7 @@ class AgentState(TypedDict, total=False):
         "scraper",
         "financial_analyst",
         "career_strategy",
+        "learning_companion",
         "synthesize",
         "error_recovery",
         "end",
@@ -327,6 +328,7 @@ class AgentState(TypedDict, total=False):
     # ─── Analysis Outputs ───
     financial_analysis: Dict[str, Any]  # Per-company scores, risk flags, ratios
     career_recommendations: List[Dict[str, Any]]  # Ranked job matches with reasoning
+    learning_roadmap: Dict[str, Any]  # Personalized learning path with papers, courses
     market_intelligence: Dict[str, Any]  # Sector trends, salary benchmarks
 
     # ─── Resilience & Error Handling ───

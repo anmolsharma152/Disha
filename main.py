@@ -1,6 +1,7 @@
 """
 Project Alpha-Nexus - LangGraph Multi-Agent Orchestrator
 Main entry point compiling the state graph with Supervisor pattern.
+Uses modular agents from agents/ package.
 """
 
 from __future__ import annotations
@@ -8,27 +9,19 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Literal, TypedDict
+from typing import Any, Dict, List, Literal
 
 from langgraph.graph import END, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 
-from schemas import (
-    AgentState,
-    CompanyMetrics,
-    JobOpening,
-    RemotePolicy,
-    ExperienceLevel,
-    ScraperSource,
-    create_initial_state,
-    validate_company_metrics,
-    validate_job_opening,
-)
+from schemas import AgentState, create_initial_state
 
-# Import scraper tools
-from tools.scraper_tools import (
-    fetch_financial_news_rss,
-    fetch_webpage_playwright,
+from agents import (
+    node_supervisor,
+    node_scraper,
+    node_financial_analyst,
+    node_career_strategy,
+    node_learning_companion,
 )
 
 # ──────────────────────────────────────────────────────────────
@@ -43,550 +36,50 @@ logger = logging.getLogger("alpha_nexus")
 
 
 # ──────────────────────────────────────────────────────────────
-# Mock Node Implementations (replace with real agents later)
+# Conditional Routing Logic
 # ──────────────────────────────────────────────────────────────
 
-def node_supervisor(state: AgentState) -> AgentState:
+def should_continue(state: AgentState) -> Literal[
+    "scraper",
+    "financial_analyst",
+    "career_strategy",
+    "learning_companion",
+    "error_recovery",
+    "synthesize",
+    "end",
+]:
     """
-    Supervisor Agent: Analyzes user intent, delegates to sub-agents,
-    aggregates results, and determines when objective is met.
+    Conditional edge function: inspects routing_key and iteration count
+    to determine next node or END.
     """
-    logger.info(f"[Supervisor] Iteration {state['iteration']}/{state['max_iterations']} | routing_key={state.get('routing_key')}")
-
-    # Increment iteration counter
-    state["iteration"] = state.get("iteration", 0) + 1
-    state["updated_at"] = datetime.now()
-    state["current_agent"] = "supervisor"
-
-    # Record delegation
-    if state.get("routing_key") and state["routing_key"] != "scraper":
-        state["delegation_history"].append({
-            "from": "supervisor",
-            "to": state["routing_key"],
-            "iteration": state["iteration"],
-            "timestamp": datetime.now().isoformat(),
-        })
+    routing_key = state.get("routing_key", "end")
+    iteration = state.get("iteration", 0)
+    max_iterations = state.get("max_iterations", 6)
 
     # Hard stop at max iterations
-    if state["iteration"] > state.get("max_iterations", 6):
-        logger.warning(f"[Supervisor] Max iterations ({state['max_iterations']}) reached -> forcing END")
-        state["routing_key"] = "end"
-        return state
+    if iteration >= max_iterations:
+        logger.warning(f"[Router] Max iterations ({max_iterations}) reached -> END")
+        return "end"
 
-    # If already at end, stay at end
-    if state.get("routing_key") == "end":
-        logger.info("[Supervisor] Already at END -> staying at END")
-        return state
-
-    # Extract what we have so far
-    has_metrics = bool(state.get("company_metrics"))
-    has_jobs = bool(state.get("job_openings"))
-    has_financial = bool(state.get("financial_analysis"))
-    has_career = bool(state.get("career_recommendations"))
-
-    # Routing logic based on what's been collected
-    query = state.get("user_query", "").lower()
-
-    if state["iteration"] == 1:
-        # First pass: always scrape first
-        state["routing_key"] = "scraper"
-        logger.info("[Supervisor] First iteration -> delegating to Scraper")
-        return state
-
-    elif state.get("routing_key") == "scraper" and (has_metrics or has_jobs):
-        # Scraper returned data -> analyze
-        if any(kw in query for kw in ["invest", "stock", "financial", "risk", "valuation", "market"]):
-            state["routing_key"] = "financial_analyst"
-            logger.info("[Supervisor] Data collected -> delegating to Financial Analyst")
-        elif any(kw in query for kw in ["job", "career", "salary", "hiring", "role", "apply", "skill"]):
-            state["routing_key"] = "career_strategy"
-            logger.info("[Supervisor] Data collected -> delegating to Career Strategy")
-        else:
-            # Default: do both analyses (financial first)
-            state["routing_key"] = "financial_analyst"
-            logger.info("[Supervisor] Data collected -> delegating to Financial Analyst (default)")
-        return state
-
-    elif state.get("routing_key") == "financial_analyst" and has_financial and not has_career:
-        # Financial done, need career
-        if any(kw in query for kw in ["job", "career", "salary", "hiring", "role", "apply"]):
-            state["routing_key"] = "career_strategy"
-            logger.info("[Supervisor] Financial done -> delegating to Career Strategy")
-        else:
-            state["routing_key"] = "synthesize"
-            logger.info("[Supervisor] Financial done -> synthesizing")
-        return state
-
-    elif state.get("routing_key") == "career_strategy" and has_career:
-        # Career done -> synthesize
-        state["routing_key"] = "synthesize"
-        logger.info("[Supervisor] Career done -> synthesizing")
-        return state
-
-    elif state.get("routing_key") == "synthesize":
-        # Already synthesized -> end
-        state["routing_key"] = "end"
-        logger.info("[Supervisor] Synthesis complete -> END")
-        return state
-
-    elif state.get("routing_key") == "error_recovery":
-        # Error recovery attempted, try alternative or end
-        if state.get("fallback_activated", {}).get("scraper"):
-            state["routing_key"] = "end"
-            logger.warning("[Supervisor] Fallback exhausted -> END")
-        else:
-            state["routing_key"] = "scraper"
-            logger.info("[Supervisor] Error recovery -> retrying Scraper with fallback")
-        return state
-
-    else:
-        # Default fallback
-        state["routing_key"] = "scraper"
-        logger.info("[Supervisor] Default -> Scraper")
-        return state
-
-
-def node_scraper(state: AgentState) -> AgentState:
-    """
-    Scraper Agent: Dynamically invokes scraping tools based on target domains.
-    Uses real tools: fetch_financial_news_rss for RSS feeds, fetch_webpage_playwright for webpages.
-    """
-    logger.info("[Scraper] Starting scrape with real tools...")
-    state["current_agent"] = "scraper"
-    state["updated_at"] = datetime.now()
-
-    # Simulate scraping delay
-    import time
-    time.sleep(0.1)
-
-    # For demo purposes, we'll use the tools with mock URLs
-    # In production, the supervisor would provide target URLs based on query analysis
-
-    # Example 1: Fetch financial news via RSS
-    try:
-        rss_result = fetch_financial_news_rss.invoke({
-            "feed_url": "http://feeds.bbci.co.uk/news/business/rss.xml",
-            "max_items": 3,
-        })
-        logger.info(f"[Scraper] RSS fetch returned {len(rss_result.get('articles', []))} articles")
-
-        # Convert RSS articles to mock company metrics (for demo)
-        if rss_result.get("articles"):
-            for article in rss_result["articles"][:1]:  # Just first article for demo
-                # Create a mock company metrics from the article
-                mock_metrics = CompanyMetrics(
-                    company_name="BBC Business",  # Using feed title as company
-                    ticker=None,
-                    market_cap=None,
-                    revenue_ttm=None,
-                    revenue_growth_yoy=None,
-                    headcount_current=None,
-                    headcount_6m_ago=None,
-                    source_url=article["link"],
-                    source_domain=article["source_domain"],
-                    scraper_source=ScraperSource.RSS_FEED,
-                    confidence_score=0.7,
-                    fiscal_period=None,
-                )
-
-                existing_metrics = state.get("company_metrics", [])
-                existing_tickers = {m.get("ticker") for m in existing_metrics if m.get("ticker")}
-                # Use a unique key since no ticker
-                state["company_metrics"] = existing_metrics + [mock_metrics.model_dump(mode="json")]
-    except Exception as e:
-        logger.warning(f"[Scraper] RSS fetch failed: {e}")
-
-    # Example 2: Scrape a webpage via Playwright stub
-    try:
-        page_result = fetch_webpage_playwright.invoke({
-            "url": "https://nexustech.com/careers",
-            "wait_for_selector": ".job-listings",
-            "wait_for_timeout": 5000,
-        })
-        logger.info(f"[Scraper] Playwright stub returned page: {page_result.get('title')}")
-
-        # Store raw scraped page
-        state["raw_scraped_pages"].append({
-            "url": page_result["url"],
-            "html": page_result["html"],
-            "markdown": page_result["markdown"],
-            "metadata": {
-                "scraped_at": page_result["scraped_at"],
-                "scraper": "playwright-stub",
-                "status": 200,
-            },
-        })
-    except Exception as e:
-        logger.warning(f"[Scraper] Playwright fetch failed: {e}")
-
-    # Still add mock data for the demo to work end-to-end
-    # (This simulates what would happen with real scraped data)
-    mock_metrics = CompanyMetrics(
-        company_name="Nexus Technologies",
-        ticker="NEXUS",
-        market_cap=2_500_000_000,
-        enterprise_value=2_300_000_000,
-        pe_ratio=28.5,
-        revenue_ttm=180_000_000,
-        revenue_growth_yoy=42.3,
-        revenue_growth_qoq=12.1,
-        gross_margin=72.5,
-        operating_margin=18.2,
-        net_margin=11.8,
-        headcount_current=420,
-        headcount_6m_ago=350,
-        headcount_12m_ago=280,
-        cash_and_equivalents=85_000_000,
-        total_debt=12_000_000,
-        free_cash_flow=22_000_000,
-        source_url="https://finance.yahoo.com/quote/NEXUS",
-        source_domain="finance.yahoo.com",
-        scraper_source=ScraperSource.FINANCIAL_API,
-        confidence_score=0.92,
-        fiscal_period="2024-Q3",
-    )
-
-    mock_jobs = [
-        JobOpening(
-            company_name="Nexus Technologies",
-            title="Senior Machine Learning Engineer",
-            location_raw="San Francisco, CA (Hybrid 3/2)",
-            location_city="San Francisco",
-            location_state="CA",
-            location_country="US",
-            remote_policy=RemotePolicy.HYBRID,
-            experience_level=ExperienceLevel.SENIOR,
-            department="AI Research",
-            tech_stack=["Python", "PyTorch", "TensorFlow", "Kubernetes", "AWS", "MLflow"],
-            skills_required=["Deep Learning", "LLM Fine-tuning", "Distributed Training", "MLOps"],
-            skills_preferred=["CUDA", "Triton", "Ray", "WandB"],
-            payout_min=180_000,
-            payout_max=260_000,
-            equity_min=50_000,
-            equity_max=120_000,
-            bonus_target=30_000,
-            compensation_source="levels_fyi",
-            compensation_confidence=0.85,
-            visa_sponsorship=True,
-            h1b_eligible=True,
-            description_raw="Join our AI Research team building next-gen foundation models...",
-            source_url="https://nexustech.com/careers/senior-ml-engineer",
-            source_domain="nexustech.com",
-            scraper_source=ScraperSource.ATS_GREENHOUSE,
-            posted_date=datetime(2024, 11, 15),
-            is_active=True,
-            application_url="https://nexustech.com/apply/12345",
-        ),
-        JobOpening(
-            company_name="Nexus Technologies",
-            title="Staff Backend Engineer - ML Infrastructure",
-            location_raw="Remote (US)",
-            location_city="Remote",
-            location_state="US",
-            location_country="US",
-            remote_policy=RemotePolicy.REMOTE,
-            experience_level=ExperienceLevel.STAFF,
-            department="Platform Engineering",
-            tech_stack=["Go", "Rust", "Kubernetes", "gRPC", "Prometheus", "ClickHouse"],
-            skills_required=["High-throughput Systems", "GPU Cluster Management", "Compiler Internals"],
-            skills_preferred=["CUDA", "Triton Inference Server", "KubeRay", "vLLM"],
-            payout_min=220_000,
-            payout_max=320_000,
-            equity_min=80_000,
-            equity_max=200_000,
-            bonus_target=50_000,
-            compensation_source="levels_fyi",
-            compensation_confidence=0.88,
-            visa_sponsorship=True,
-            h1b_eligible=True,
-            description_raw="Build the infrastructure that powers our 10,000+ GPU training clusters...",
-            source_url="https://nexustech.com/careers/staff-backend-ml-infra",
-            source_domain="nexustech.com",
-            scraper_source=ScraperSource.ATS_GREENHOUSE,
-            posted_date=datetime(2024, 11, 10),
-            is_active=True,
-            application_url="https://nexustech.com/apply/12346",
-        ),
-    ]
-
-    # Append to state (extend, don't replace)
-    existing_metrics = state.get("company_metrics", [])
-    existing_jobs = state.get("job_openings", [])
-
-    # Avoid duplicates by company_name/ticker or job_id
-    existing_tickers = {m.get("ticker") for m in existing_metrics if m.get("ticker")}
-    if mock_metrics.ticker not in existing_tickers:
-        state["company_metrics"] = existing_metrics + [mock_metrics.model_dump(mode="json")]
-
-    existing_job_ids = {j.get("job_id") for j in existing_jobs if j.get("job_id")}
-    new_job_dicts = [j.model_dump(mode="json") for j in mock_jobs if j.job_id not in existing_job_ids]
-    state["job_openings"] = existing_jobs + new_job_dicts
-
-    logger.info(f"[Scraper] Added 1 company, {len(new_job_dicts)} new jobs")
-    return state
-
-
-def node_financial_analyst(state: AgentState) -> AgentState:
-    """
-    Financial Analyst Agent: Consumes raw metrics and stock trends
-    to calculate investment scores and risk flags.
-    MOCK: Returns simulated analysis.
-    """
-    logger.info("[Financial Analyst] Analyzing company metrics...")
-    state["current_agent"] = "financial_analyst"
-    state["updated_at"] = datetime.now()
-
-    import time
-    time.sleep(0.1)
-
-    metrics = state.get("company_metrics", [])
-    if not metrics:
-        logger.warning("[Financial Analyst] No metrics to analyze")
-        state["financial_analysis"] = {"error": "No company metrics available"}
-        return state
-
-    # Take the most recent metrics
-    latest = metrics[-1]
-
-    # Mock analysis computation
-    revenue_growth = latest.get("revenue_growth_yoy", 0)
-    headcount_growth = latest.get("headcount_growth_6m", 0)
-    pe_ratio = latest.get("pe_ratio", 0) or 1
-    gross_margin = latest.get("gross_margin", 0)
-    net_margin = latest.get("net_margin", 0)
-    fcf = latest.get("free_cash_flow", 0)
-    market_cap = latest.get("market_cap", 1)
-
-    # Simple scoring (0-100)
-    growth_score = min(100, max(0, (revenue_growth * 1.5) + (headcount_growth * 1.2)))
-    profitability_score = min(100, max(0, (gross_margin * 0.6) + (net_margin * 1.5) + 20))
-    valuation_score = min(100, max(0, 100 - (pe_ratio * 1.5))) if pe_ratio > 0 else 50
-    fcf_score = min(100, max(0, (fcf / market_cap * 100) * 50 + 50)) if market_cap > 0 else 50
-
-    composite = round((growth_score * 0.35 + profitability_score * 0.25 + valuation_score * 0.2 + fcf_score * 0.2), 1)
-
-    # Risk flags
-    risk_flags = []
-    if pe_ratio > 40:
-        risk_flags.append({"type": "high_valuation", "severity": "medium", "detail": f"P/E ratio {pe_ratio:.1f} above sector median"})
-    if revenue_growth < 10:
-        risk_flags.append({"type": "slowing_growth", "severity": "high", "detail": f"YoY revenue growth only {revenue_growth:.1f}%"})
-    if net_margin < 5:
-        risk_flags.append({"type": "low_profitability", "severity": "medium", "detail": f"Net margin {net_margin:.1f}%"})
-    if fcf < 0:
-        risk_flags.append({"type": "negative_fcf", "severity": "high", "detail": "Negative free cash flow"})
-
-    # Investment thesis
-    if composite >= 75:
-        thesis = "STRONG BUY: High growth, solid margins, reasonable valuation"
-        rating = "Strong Buy"
-    elif composite >= 60:
-        thesis = "BUY: Good fundamentals with manageable risks"
-        rating = "Buy"
-    elif composite >= 45:
-        thesis = "HOLD: Mixed signals, monitor for improvement"
-        rating = "Hold"
-    else:
-        thesis = "AVOID: Significant fundamental concerns"
-        rating = "Avoid"
-
-    state["financial_analysis"] = {
-        "company": latest.get("company_name"),
-        "ticker": latest.get("ticker"),
-        "scores": {
-            "growth": round(growth_score, 1),
-            "profitability": round(profitability_score, 1),
-            "valuation": round(valuation_score, 1),
-            "fcf": round(fcf_score, 1),
-            "composite": composite,
-        },
-        "rating": rating,
-        "thesis": thesis,
-        "risk_flags": risk_flags,
-        "key_metrics": {
-            "revenue_growth_yoy": revenue_growth,
-            "headcount_growth_6m": headcount_growth,
-            "pe_ratio": pe_ratio,
-            "gross_margin": gross_margin,
-            "net_margin": net_margin,
-            "fcf_yield": round(fcf / market_cap * 100, 2) if market_cap > 0 else None,
-        },
-        "analyzed_at": datetime.now().isoformat(),
+    # Route based on routing_key
+    valid_routes = {
+        "scraper": "scraper",
+        "financial_analyst": "financial_analyst",
+        "career_strategy": "career_strategy",
+        "learning_companion": "learning_companion",
+        "error_recovery": "error_recovery",
+        "synthesize": "synthesize",
+        "end": "end",
     }
 
-    logger.info(f"[Financial Analyst] Composite score: {composite} -> {rating}")
-    return state
+    next_node = valid_routes.get(routing_key, "end")
+    logger.debug(f"[Router] iteration={iteration}, routing_key={routing_key} -> {next_node}")
+    return next_node
 
 
-def node_career_strategy(state: AgentState) -> AgentState:
-    """
-    Career Strategy Agent: Matches user profiles/skills against scraped roles
-    to recommend high-yield job applications.
-    MOCK: Returns simulated recommendations.
-    """
-    logger.info("[Career Strategy] Matching roles against user profile...")
-    state["current_agent"] = "career_strategy"
-    state["updated_at"] = datetime.now()
-
-    import time
-    time.sleep(0.1)
-
-    jobs = state.get("job_openings", [])
-    if not jobs:
-        logger.warning("[Career Strategy] No job openings to analyze")
-        state["career_recommendations"] = [{"error": "No job openings available"}]
-        return state
-
-    # Mock user profile (in reality, this comes from user input / session)
-    user_profile = {
-        "skills": ["Python", "PyTorch", "Kubernetes", "AWS", "MLOps", "Distributed Systems"],
-        "experience_years": 6,
-        "target_roles": ["ML Engineer", "ML Infrastructure", "Backend Engineer"],
-        "min_base_salary": 180_000,
-        "prefer_remote": True,
-        "visa_required": True,
-    }
-
-    recommendations = []
-
-    for job in jobs:
-        # Skill match scoring
-        job_tech = set(s.lower() for s in job.get("tech_stack", []))
-        job_skills = set(s.lower() for s in job.get("skills_required", []))
-        user_skills = set(s.lower() for s in user_profile["skills"])
-
-        all_job_skills = job_tech | job_skills
-        matched = user_skills & all_job_skills
-        missing = all_job_skills - user_skills
-        match_pct = round(len(matched) / len(all_job_skills) * 100, 1) if all_job_skills else 0
-
-        # Compensation fit
-        payout_mid = job.get("payout_midpoint") or 0
-        comp_fit = "above" if payout_mid >= user_profile["min_base_salary"] else "below"
-
-        # Remote fit
-        remote_fit = job.get("remote_policy") in ("remote", "remote_friendly") and user_profile["prefer_remote"]
-
-        # Visa fit
-        visa_fit = job.get("visa_sponsorship") == True and user_profile["visa_required"]
-
-        # Experience fit
-        exp_level = job.get("experience_level", "unknown")
-        exp_order = ["intern", "entry", "junior", "mid", "senior", "staff", "principal", "director", "vp", "c_level"]
-        user_exp_idx = min(user_profile["experience_years"] // 2, len(exp_order) - 1)
-        job_exp_idx = exp_order.index(exp_level) if exp_level in exp_order else 2
-        exp_fit = "match" if abs(user_exp_idx - job_exp_idx) <= 1 else ("overqualified" if user_exp_idx > job_exp_idx else "stretch")
-
-        # Overall score
-        score = (
-            match_pct * 0.4 +
-            (100 if comp_fit == "above" else 50) * 0.25 +
-            (100 if remote_fit else 30) * 0.15 +
-            (100 if visa_fit else 0) * 0.1 +
-            (100 if exp_fit == "match" else (70 if exp_fit == "stretch" else 40)) * 0.1
-        )
-
-        rec = {
-            "job_id": job.get("job_id"),
-            "company": job.get("company_name"),
-            "title": job.get("title"),
-            "title_normalized": job.get("title_normalized"),
-            "location": f"{job.get('location_city', '')}, {job.get('location_state', '')}".strip(", "),
-            "remote_policy": job.get("remote_policy"),
-            "match_score": round(score, 1),
-            "skill_match_pct": match_pct,
-            "matched_skills": sorted(list(matched)),
-            "missing_skills": sorted(list(missing))[:5],
-            "compensation": {
-                "base_midpoint": payout_mid,
-                "total_estimate": job.get("total_comp_estimate"),
-                "fit": comp_fit,
-            },
-            "experience_fit": exp_fit,
-            "remote_fit": remote_fit,
-            "visa_fit": visa_fit,
-            "application_url": job.get("application_url"),
-            "source_url": job.get("source_url"),
-            "reasoning": f"Strong skill overlap ({match_pct}%), {comp_fit} target salary, "
-                         f"{'remote-friendly' if remote_fit else 'onsite/hybrid'}, "
-                         f"{'visa sponsorship available' if visa_fit else 'no visa support'}.",
-            "priority": "high" if score >= 75 else ("medium" if score >= 55 else "low"),
-            "analyzed_at": datetime.now().isoformat(),
-        }
-        recommendations.append(rec)
-
-    # Sort by score descending
-    recommendations.sort(key=lambda x: x["match_score"], reverse=True)
-    state["career_recommendations"] = recommendations
-
-    logger.info(f"[Career Strategy] Generated {len(recommendations)} recommendations")
-    for r in recommendations[:3]:
-        logger.info(f"  -> {r['title']} @ {r['company']}: {r['match_score']} ({r['priority']})")
-
-    return state
-
-
-def node_error_recovery(state: AgentState) -> AgentState:
-    """
-    Error Recovery Node: Activated when a primary agent fails.
-    Implements fallback pipeline: Playwright -> BeautifulSoup -> Alternative APIs -> Cached Data.
-    """
-    logger.warning("[Error Recovery] Attempting fallback pipeline...")
-    state["current_agent"] = "error_recovery"
-    state["updated_at"] = datetime.now()
-
-    error_log = state.get("error_log", [])
-    last_error = error_log[-1] if error_log else {"agent": "unknown", "error": "unknown"}
-
-    # Determine which stage failed
-    failed_agent = last_error.get("agent", "scraper")
-
-    if failed_agent == "scraper" and not state.get("fallback_activated", {}).get("scraper"):
-        # Try BeautifulSoup fallback
-        logger.info("[Error Recovery] Trying BeautifulSoup + httpx fallback...")
-        state["fallback_activated"]["scraper"] = True
-
-        # Mock fallback data
-        fallback_metrics = CompanyMetrics(
-            company_name="Nexus Technologies (fallback)",
-            ticker="NEXUS",
-            market_cap=2_400_000_000,
-            revenue_ttm=175_000_000,
-            revenue_growth_yoy=38.0,
-            headcount_current=400,
-            headcount_6m_ago=330,
-            source_url="https://api.alternative-data.com/v1/companies/NEXUS",
-            source_domain="api.alternative-data.com",
-            scraper_source=ScraperSource.FINANCIAL_API,
-            confidence_score=0.65,
-            fiscal_period="2024-Q3",
-        )
-
-        existing = state.get("company_metrics", [])
-        existing_tickers = {m.get("ticker") for m in existing if m.get("ticker")}
-        if fallback_metrics.ticker not in existing_tickers:
-            state["company_metrics"] = existing + [fallback_metrics.model_dump(mode="json")]
-
-        state["routing_key"] = "financial_analyst"
-        logger.info("[Error Recovery] Fallback data injected -> routing to Financial Analyst")
-
-    elif failed_agent == "financial_analyst":
-        # Simple heuristic fallback
-        logger.info("[Error Recovery] Using heuristic financial scoring...")
-        state["fallback_activated"]["financial_analyst"] = True
-        state["routing_key"] = "career_strategy"
-
-    elif failed_agent == "career_strategy":
-        logger.info("[Error Recovery] Using basic keyword matching...")
-        state["fallback_activated"]["career_strategy"] = True
-        state["routing_key"] = "synthesize"
-
-    else:
-        logger.error("[Error Recovery] Unknown failure point -> END")
-        state["routing_key"] = "end"
-
-    return state
-
+# ──────────────────────────────────────────────────────────────
+# Synthesis Node (kept in main for aggregation)
+# ──────────────────────────────────────────────────────────────
 
 def node_synthesize(state: AgentState) -> AgentState:
     """
@@ -598,6 +91,7 @@ def node_synthesize(state: AgentState) -> AgentState:
 
     financial = state.get("financial_analysis", {})
     career = state.get("career_recommendations", [])
+    learning = state.get("learning_roadmap", {})
     metrics = state.get("company_metrics", [])
     jobs = state.get("job_openings", [])
 
@@ -648,12 +142,30 @@ def node_synthesize(state: AgentState) -> AgentState:
                 sections.append(f"- **Apply**: {c['application_url']}")
             citations.append({"source": c.get("source_url"), "type": "job_posting"})
 
+    # Learning Roadmap
+    if learning and "learning_phases" in learning:
+        phases = learning["learning_phases"]
+        sections.append(f"\n## Personalized Learning Roadmap ({len(phases)} phases, {learning.get('timeline', {}).get('total_weeks', 0)} weeks)")
+        for phase in phases:
+            sections.append(f"\n### {phase['title']} ({phase['estimated_weeks']} weeks)")
+            sections.append(f"- **Skills to acquire**: {', '.join(phase['skills_covered'][:5])}")
+            sections.append(f"- **Key papers**: {len(phase['papers'])} papers")
+            for p in phase["papers"][:3]:
+                sections.append(f"  - [{p['arxiv_id']}] {p['title']} ({p['year']}) -- {p['relevance']}")
+            sections.append(f"- **Milestones**: {'; '.join(phase['milestones'])}")
+        
+        sections.append(f"\n**Next Actions**:")
+        for action in learning.get("next_actions", [])[:3]:
+            sections.append(f"- {action}")
+
     # Final confidence
     confidence_factors = []
     if financial and "scores" in financial:
         confidence_factors.append(0.8)
     if career:
         confidence_factors.append(0.7)
+    if learning:
+        confidence_factors.append(0.75)
     if metrics:
         confidence_factors.append(0.9)
     answer_confidence = round(sum(confidence_factors) / len(confidence_factors), 2) if confidence_factors else 0.3
@@ -670,43 +182,51 @@ def node_synthesize(state: AgentState) -> AgentState:
 
 
 # ──────────────────────────────────────────────────────────────
-# Conditional Routing Logic
+# Error Recovery Node (kept in main for resilience)
 # ──────────────────────────────────────────────────────────────
 
-def should_continue(state: AgentState) -> Literal[
-    "scraper",
-    "financial_analyst",
-    "career_strategy",
-    "error_recovery",
-    "synthesize",
-    "end",
-]:
+def node_error_recovery(state: AgentState) -> AgentState:
     """
-    Conditional edge function: inspects routing_key and iteration count
-    to determine next node or END.
+    Error Recovery Node: Activated when a primary agent fails.
+    Implements fallback pipeline: Playwright -> BeautifulSoup -> Alternative APIs -> Cached Data.
     """
-    routing_key = state.get("routing_key", "end")
-    iteration = state.get("iteration", 0)
-    max_iterations = state.get("max_iterations", 6)
+    logger.warning("[Error Recovery] Attempting fallback pipeline...")
+    state["current_agent"] = "error_recovery"
+    state["updated_at"] = datetime.now()
 
-    # Hard stop at max iterations
-    if iteration >= max_iterations:
-        logger.warning(f"[Router] Max iterations ({max_iterations}) reached -> END")
-        return "end"
+    error_log = state.get("error_log", [])
+    last_error = error_log[-1] if error_log else {"agent": "unknown", "error": "unknown"}
 
-    # Route based on routing_key
-    valid_routes = {
-        "scraper": "scraper",
-        "financial_analyst": "financial_analyst",
-        "career_strategy": "career_strategy",
-        "error_recovery": "error_recovery",
-        "synthesize": "synthesize",
-        "end": "end",
-    }
+    # Determine which stage failed
+    failed_agent = last_error.get("agent", "scraper")
 
-    next_node = valid_routes.get(routing_key, "end")
-    logger.debug(f"[Router] iteration={iteration}, routing_key={routing_key} -> {next_node}")
-    return next_node
+    if failed_agent == "scraper" and not state.get("fallback_activated", {}).get("scraper"):
+        # Try BeautifulSoup fallback
+        logger.info("[Error Recovery] Trying BeautifulSoup + httpx fallback...")
+        state["fallback_activated"]["scraper"] = True
+        state["routing_key"] = "scraper"
+        logger.info("[Error Recovery] Fallback activated -> routing to Scraper")
+
+    elif failed_agent == "financial_analyst":
+        logger.info("[Error Recovery] Using heuristic financial scoring...")
+        state["fallback_activated"]["financial_analyst"] = True
+        state["routing_key"] = "career_strategy"
+
+    elif failed_agent == "career_strategy":
+        logger.info("[Error Recovery] Using basic keyword matching...")
+        state["fallback_activated"]["career_strategy"] = True
+        state["routing_key"] = "learning_companion"
+
+    elif failed_agent == "learning_companion":
+        logger.info("[Error Recovery] Skipping learning -> synthesize")
+        state["fallback_activated"]["learning_companion"] = True
+        state["routing_key"] = "synthesize"
+
+    else:
+        logger.error("[Error Recovery] Unknown failure point -> END")
+        state["routing_key"] = "end"
+
+    return state
 
 
 # ──────────────────────────────────────────────────────────────
@@ -726,6 +246,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("scraper", node_scraper)
     workflow.add_node("financial_analyst", node_financial_analyst)
     workflow.add_node("career_strategy", node_career_strategy)
+    workflow.add_node("learning_companion", node_learning_companion)
     workflow.add_node("error_recovery", node_error_recovery)
     workflow.add_node("synthesize", node_synthesize)
 
@@ -740,6 +261,7 @@ def build_graph() -> StateGraph:
             "scraper": "scraper",
             "financial_analyst": "financial_analyst",
             "career_strategy": "career_strategy",
+            "learning_companion": "learning_companion",
             "error_recovery": "error_recovery",
             "synthesize": "synthesize",
             "end": END,
@@ -747,7 +269,7 @@ def build_graph() -> StateGraph:
     )
 
     # All sub-agents route back to supervisor
-    for node_name in ["scraper", "financial_analyst", "career_strategy", "error_recovery"]:
+    for node_name in ["scraper", "financial_analyst", "career_strategy", "learning_companion", "error_recovery"]:
         workflow.add_edge(node_name, "supervisor")
 
     # Synthesize goes to supervisor for final check, then END
@@ -847,7 +369,7 @@ if __name__ == "__main__":
     import json
 
     parser = argparse.ArgumentParser(description="Project Alpha-Nexus - Market Intelligence & Career Optimization")
-    parser.add_argument("query", nargs="?", default="Find me high-paying ML roles at growing AI companies with strong fundamentals")
+    parser.add_argument("query", nargs="?", default="Find Agentic AI and Backend roles in Bangalore on Naukri and suggest an LLMOps learning roadmap")
     parser.add_argument("--user-id", default="cli_user")
     parser.add_argument("--session-id", default=None)
     parser.add_argument("--max-iterations", type=int, default=6)
