@@ -388,6 +388,85 @@ class DocumentChunk(Base, TimestampMixin, UUIDMixin):
 
 
 # ══════════════════════════════════════════════════════════════════
+# Knowledge Graph Nodes & Edges (Skills ↔ Roles ↔ Companies)
+# ══════════════════════════════════════════════════════════════════
+
+class SkillNode(Base, TimestampMixin, UUIDMixin):
+    """Canonical skill taxonomy node."""
+    __tablename__ = "kg_skills"
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    category: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # language, framework, concept, tool
+    aliases: Mapped[list] = mapped_column(JSON, default=list)  # ["py", "python3"]
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+    frequency: Mapped[int] = mapped_column(Integer, default=0)  # how many jobs require this
+
+
+class RoleNode(Base, TimestampMixin, UUIDMixin):
+    """Normalized role titles (ML Engineer, LLM Engineer, etc.)."""
+    __tablename__ = "kg_roles"
+    title: Mapped[str] = mapped_column(String(150), nullable=False, unique=True, index=True)
+    canonical_title: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
+    seniority: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # junior, mid, senior, staff, principal
+    function: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # ml, backend, data, research
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    avg_base_lpa: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # INR LPA benchmark
+    market_demand_score: Mapped[float] = mapped_column(Float, default=0.0)  # 0-100
+
+
+class CompanyNode(Base, TimestampMixin, UUIDMixin):
+    """Employer entities with sector/tags."""
+    __tablename__ = "kg_companies"
+    name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, index=True)
+    canonical_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    sector: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)  # fintech, ecommerce, saas, ai
+    stage: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # startup, growth, public, enterprise
+    location_city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    employee_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tech_stack_summary: Mapped[list] = mapped_column(JSON, default=list)
+    hiring_velocity: Mapped[float] = mapped_column(Float, default=0.0)  # jobs/month
+
+
+# ══════════════════════════════════════════════════════════════════
+# Knowledge Graph Edges (explicit relationships with weights)
+# ══════════════════════════════════════════════════════════════════
+
+class RoleSkillEdge(Base, TimestampMixin, UUIDMixin):
+    """Role ↔ Skill with requirement type and weight."""
+    __tablename__ = "kg_role_skills"
+    role_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("kg_roles.id"), nullable=False, index=True)
+    skill_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("kg_skills.id"), nullable=False, index=True)
+    requirement_type: Mapped[str] = mapped_column(String(20), nullable=False)  # required, preferred, nice_to_have
+    weight: Mapped[float] = mapped_column(Float, default=1.0)  # importance 0-1
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)  # how many job postings confirm this
+
+    __table_args__ = (UniqueConstraint("role_id", "skill_id", "requirement_type", name="uq_role_skill_type"),)
+
+
+class CompanyRoleEdge(Base, TimestampMixin, UUIDMixin):
+    """Company ↔ Role (hiring relationship)."""
+    __tablename__ = "kg_company_roles"
+    company_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("kg_companies.id"), nullable=False, index=True)
+    role_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("kg_roles.id"), nullable=False, index=True)
+    open_count: Mapped[int] = mapped_column(Integer, default=0)
+    avg_base_lpa: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("company_id", "role_id", name="uq_company_role"),)
+
+
+class CompanySkillEdge(Base, TimestampMixin, UUIDMixin):
+    """Company ↔ Skill (tech stack evidence)."""
+    __tablename__ = "kg_company_skills"
+    company_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("kg_companies.id"), nullable=False, index=True)
+    skill_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("kg_skills.id"), nullable=False, index=True)
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+
+    __table_args__ = (UniqueConstraint("company_id", "skill_id", name="uq_company_skill"),)
+
+
+# ══════════════════════════════════════════════════════════════════
 # Repository Classes (Async)
 # ══════════════════════════════════════════════════════════════════
 
