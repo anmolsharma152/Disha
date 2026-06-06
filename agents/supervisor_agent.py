@@ -7,11 +7,120 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from functools import wraps
 from typing import Any, Dict, Literal
 
 from schemas import AgentState
 
 logger = logging.getLogger("alpha_nexus.agents.supervisor")
+
+# ══════════════════════════════════════════════════════════════════
+# Guardrail: Hard exclusions (HFT, Rust, C++, Visa-sponsorship metrics)
+# ══════════════════════════════════════════════════════════════════
+
+EXCLUDED_DOMAINS = {
+    "hft", "high-frequency trading", "high frequency trading", 
+    "quant trading", "market making", "latency trading",
+    "proprietary trading", "prop trading"
+}
+
+EXCLUDED_TECH = {
+    "rust", "c++", "cpp", "verilog", "vhdl", "fpga", 
+    "kernel", "embedded", "firmware", "device driver",
+    "rtos", "real-time", "microcontroller"
+}
+
+EXCLUDED_VISA_METRICS = {
+    "h1b", "h-1b", "visa sponsorship", "visa sponsor",
+    "work authorization", "green card", "permanent residency",
+    "us citizen", "us citizenship", "citizenship required",
+    "security clearance", "secret clearance", "top secret"
+}
+
+def guardrail_filter_jobs(jobs: list[Dict[str, Any]]) -> tuple[list[Dict[str, Any]], int]:
+    """Filter out jobs matching excluded domains, tech, or visa requirements."""
+    filtered = []
+    dropped = 0
+    
+    for job in jobs:
+        text = f"{job.get('title','')} {job.get('description_raw','')} {' '.join(job.get('tech_stack',[]))} {' '.join(job.get('skills_required',[]))} {' '.join(job.get('skills_preferred',[]))}".lower()
+        
+        # Domain exclusion
+        if any(excl in text for excl in EXCLUDED_DOMAINS):
+            logger.info(f"[Guardrail] Dropped job (domain): {job.get('title')} @ {job.get('company_name')}")
+            dropped += 1
+            continue
+        
+        # Tech exclusion
+        if any(excl in text for excl in EXCLUDED_TECH):
+            logger.info(f"[Guardrail] Dropped job (tech): {job.get('title')} @ {job.get('company_name')}")
+            dropped += 1
+            continue
+        
+        # Visa sponsorship exclusion (for India roles, visa not needed)
+        if any(excl in text for excl in EXCLUDED_VISA_METRICS):
+            logger.info(f"[Guardrail] Dropped job (visa): {job.get('title')} @ {job.get('company_name')}")
+            dropped += 1
+            continue
+        
+        filtered.append(job)
+    
+    return filtered, dropped
+
+
+def guardrail_filter_companies(metrics: list[Dict[str, Any]]) -> tuple[list[Dict[str, Any]], int]:
+    """Filter out companies in excluded domains."""
+    filtered = []
+    dropped = 0
+    
+    for m in metrics:
+        name = m.get("company_name", "").lower()
+        desc = m.get("extra_data", {}).get("description", "").lower()
+        
+        if any(excl in name for excl in EXCLUDED_DOMAINS) or any(excl in desc for excl in EXCLUDED_DOMAINS):
+            logger.info(f"[Guardrail] Dropped company (domain): {name}")
+            dropped += 1
+            continue
+        
+        filtered.append(m)
+    
+    return filtered, dropped
+
+
+def node_guardrail_pre_synthesis(state: AgentState) -> AgentState:
+    """
+    Guardrail Node: Runs immediately before synthesis.
+    Strips excluded jobs/companies to save token costs and enforce constraints.
+    """
+    logger.info("[Guardrail] Pre-synthesis filtering...")
+    state["current_agent"] = "guardrail"
+    state["updated_at"] = datetime.now()
+    
+    # Filter job_openings
+    jobs = state.get("job_openings", [])
+    if jobs:
+        filtered_jobs, dropped = guardrail_filter_jobs(jobs)
+        if dropped:
+            logger.info(f"[Guardrail] Filtered {dropped} excluded jobs before synthesis")
+            state["job_openings"] = filtered_jobs
+            guardrail_stats = state.get("guardrail_stats", {})
+            guardrail_stats["jobs_dropped"] = dropped
+            state["guardrail_stats"] = guardrail_stats
+    
+    # Filter company_metrics
+    metrics = state.get("company_metrics", [])
+    if metrics:
+        filtered_metrics, dropped = guardrail_filter_companies(metrics)
+        if dropped:
+            logger.info(f"[Guardrail] Filtered {dropped} excluded companies before synthesis")
+            state["company_metrics"] = filtered_metrics
+            guardrail_stats = state.get("guardrail_stats", {})
+            guardrail_stats["companies_dropped"] = dropped
+            state["guardrail_stats"] = guardrail_stats
+    
+    # Always route to synthesize after guardrail
+    state["routing_key"] = "synthesize"
+    return state
 
 
 def node_supervisor(state: AgentState) -> AgentState:

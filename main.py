@@ -22,6 +22,7 @@ from agents import (
     node_financial_analyst,
     node_career_strategy,
     node_learning_companion,
+    node_guardrail_pre_synthesis,
 )
 
 # ──────────────────────────────────────────────────────────────
@@ -104,8 +105,16 @@ def node_synthesize(state: AgentState) -> AgentState:
     if metrics:
         m = metrics[-1]
         sections.append(f"## Company Analysis: {m.get('company_name')} ({m.get('ticker')})")
-        sections.append(f"- **Market Cap**: ${m.get('market_cap', 0)/1e9:.1f}B")
-        sections.append(f"- **Revenue (TTM)**: ${m.get('revenue_ttm', 0)/1e6:.0f}M (YoY: {m.get('revenue_growth_yoy', 0):.1f}%)")
+        market_cap = m.get('market_cap', 0)
+        if market_cap >= 10000000:
+            sections.append(f"- **Market Cap**: ₹{market_cap / 10000000:.2f} Cr")
+        else:
+            sections.append(f"- **Market Cap**: ₹{market_cap / 100000:.1f} L")
+        revenue_ttm = m.get('revenue_ttm', 0)
+        if revenue_ttm >= 10000000:
+            sections.append(f"- **Revenue (TTM)**: ₹{revenue_ttm / 10000000:.2f} Cr (YoY: {m.get('revenue_growth_yoy', 0):.1f}%)")
+        else:
+            sections.append(f"- **Revenue (TTM)**: ₹{revenue_ttm / 100000:.1f} L (YoY: {m.get('revenue_growth_yoy', 0):.1f}%)")
         sections.append(f"- **Headcount**: {m.get('headcount_current', 0)} (6m growth: {m.get('headcount_growth_6m', 0):.1f}%)")
         sections.append(f"- **Margins**: Gross {m.get('gross_margin', 0):.1f}% | Net {m.get('net_margin', 0):.1f}%")
         citations.append({"source": m.get("source_url"), "type": "financial_metrics"})
@@ -126,17 +135,24 @@ def node_synthesize(state: AgentState) -> AgentState:
 
     # Career Recommendations
     if career and isinstance(career[0], dict) and "match_score" in career[0]:
-        sections.append(f"\n## Top Career Matches ({len(career)} roles analyzed)")
+        sections.append(f"\\n## Top Career Matches ({len(career)} roles analyzed)")
         for i, c in enumerate(career[:5], 1):
-            sections.append(f"\n### {i}. {c['title']} @ {c['company']} -- **{c['match_score']}/100** ({c['priority'].upper()})")
+            sections.append(f"\\n### {i}. {c['title']} @ {c['company']} -- **{c['match_score']}/100** ({c['priority'].upper()})")
             sections.append(f"- **Location**: {c['location']} | **Remote**: {c['remote_policy']}")
-            base_mid = c['compensation']['base_midpoint'] or 0
-            total_est = c['compensation']['total_estimate'] or 0
-            sections.append(f"- **Base**: ${base_mid:,} | **Est. Total**: ${total_est:,}")
+            comp = c.get('compensation', {})
+            base_mid = comp.get('base_midpoint', 0) or 0
+            total_est = comp.get('total_estimate', 0) or 0
+            display_lpa = comp.get('display_lpa', round(base_mid / 100000, 1))
+            display_crores = comp.get('display_crores', round(base_mid / 10000000, 2))
+            currency = comp.get('currency', 'INR')
+            if base_mid >= 10000000:
+                sections.append(f"- **Base**: ₹{display_crores:.2f} Cr | **Est. Total**: ₹{round(total_est / 10000000, 2)} Cr")
+            else:
+                sections.append(f"- **Base**: ₹{display_lpa:.1f} LPA | **Est. Total**: ₹{round(total_est / 100000, 1)} LPA")
             sections.append(f"- **Skill Match**: {c['skill_match_pct']}% ({', '.join(c['matched_skills'][:5])})")
             if c['missing_skills']:
                 sections.append(f"- **Gaps**: {', '.join(c['missing_skills'][:3])}")
-            sections.append(f"- **Visa**: {'Yes' if c['visa_fit'] else 'No'} | **Experience Fit**: {c['experience_fit']}")
+            sections.append(f"- **Visa**: {'Not Required' if c['visa_fit'] else 'Required'} | **Experience Fit**: {c['experience_fit']}")
             sections.append(f"- **Reasoning**: {c['reasoning']}")
             if c.get("application_url"):
                 sections.append(f"- **Apply**: {c['application_url']}")
@@ -248,6 +264,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("career_strategy", node_career_strategy)
     workflow.add_node("learning_companion", node_learning_companion)
     workflow.add_node("error_recovery", node_error_recovery)
+    workflow.add_node("guardrail", node_guardrail_pre_synthesis)
     workflow.add_node("synthesize", node_synthesize)
 
     # Set entry point
@@ -268,9 +285,15 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # All sub-agents route back to supervisor
-    for node_name in ["scraper", "financial_analyst", "career_strategy", "learning_companion", "error_recovery"]:
-        workflow.add_edge(node_name, "supervisor")
+    # All sub-agents route back to supervisor (except career/financial/learning go to guardrail first)
+    workflow.add_edge("scraper", "supervisor")
+    workflow.add_edge("financial_analyst", "supervisor")
+    workflow.add_edge("career_strategy", "guardrail")
+    workflow.add_edge("learning_companion", "guardrail")
+    workflow.add_edge("error_recovery", "supervisor")
+
+    # Guardrail always goes to synthesize
+    workflow.add_edge("guardrail", "synthesize")
 
     # Synthesize goes to supervisor for final check, then END
     workflow.add_edge("synthesize", "supervisor")

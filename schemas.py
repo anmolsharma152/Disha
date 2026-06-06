@@ -336,6 +336,7 @@ class AgentState(TypedDict, total=False):
     retry_count: Dict[str, int]  # {agent_name: attempts}
     circuit_breakers: Dict[str, bool]  # {domain: is_open}
     fallback_activated: Dict[str, bool]  # {pipeline_stage: used_fallback}
+    guardrail_stats: Dict[str, int]  # {jobs_dropped, companies_dropped}
 
     # ─── RAG & Knowledge ───
     retrieved_chunks: List[Dict[str, Any]]  # Vector search results

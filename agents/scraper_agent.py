@@ -121,44 +121,66 @@ LLMOPS_KEYWORDS = [
 # Helper Functions
 # ══════════════════════════════════════════════════════════════════
 
+EXCLUDED_KEYWORDS = ["hft", "rust", "c++", "firmware", "embedded", "c/c++"]
+
+
+def filter_jobs(jobs: list[Dict]) -> list[Dict]:
+    """Prune unwanted roles before they hit the Graph to save tokens."""
+    filtered = []
+    for job in jobs:
+        text = f"{job.get('title', '')} {job.get('description_raw', '')} {' '.join(job.get('tech_stack', []))}".lower()
+        if not any(kw in text for kw in EXCLUDED_KEYWORDS):
+            filtered.append(job)
+    return filtered
+
+
 def is_india_relevant(location: str, source_domain: str) -> bool:
     """Check if a job is relevant to India targeting."""
     location_lower = location.lower()
     domain_lower = source_domain.lower()
-    
+
     # Check platform
     if any(platform in domain_lower for platform in INDIAN_JOB_PLATFORMS):
         return True
-    
+
     # Check location
     if any(city in location_lower for city in INDIAN_TARGET_CITIES):
         return True
-    
+
     # Check remote India
     if "remote" in location_lower and "india" in location_lower:
         return True
-    
+
     return False
 
 
 def is_agentic_relevant(title: str, description: str, tech_stack: list) -> bool:
     """Check if job is relevant to Agentic AI/ML/LLMOps roles."""
     text = f"{title} {description} {' '.join(tech_stack)}".lower()
-    
+
     # Check for Agentic keywords
     if any(kw in text for kw in AGENTIC_KEYWORDS):
         return True
-    
+
     # Check for LLMOps keywords
     if any(kw in text for kw in LLMOPS_KEYWORDS):
         return True
-    
+
     # Check for core ML/AI terms
-    core_keywords = ["machine learning", "deep learning", "nlp", "computer vision", 
-                     "generative ai", "foundation model", "transformer", "pytorch", "tensorflow"]
+    core_keywords = [
+        "machine learning",
+        "deep learning",
+        "nlp",
+        "computer vision",
+        "generative ai",
+        "foundation model",
+        "transformer",
+        "pytorch",
+        "tensorflow",
+    ]
     if any(kw in text for kw in core_keywords):
         return True
-    
+
     return False
 
 
@@ -166,39 +188,97 @@ def extract_tech_stack(text: str) -> list:
     """Extract technology stack from job description text."""
     tech_keywords = [
         # Languages
-        "python", "go", "golang", "rust", "java", "typescript", "javascript",
-        "c++", "scala", "kotlin",
+        "python",
+        "go",
+        "golang",
+        "rust",
+        "java",
+        "typescript",
+        "javascript",
+        "c++",
+        "scala",
+        "kotlin",
         # ML/AI Frameworks
-        "pytorch", "tensorflow", "jax", "flax", "keras", "huggingface", "transformers",
-        "langchain", "langgraph", "llama-index", "haystack",
+        "pytorch",
+        "tensorflow",
+        "jax",
+        "flax",
+        "keras",
+        "huggingface",
+        "transformers",
+        "langchain",
+        "langgraph",
+        "llama-index",
+        "haystack",
         # MLOps/LLMOps
-        "mlflow", "wandb", "kubeflow", "airflow", "prefect", "dagster",
-        "vllm", "triton", "tgi", "bento", "ollama",
-        "ray", "kuberay", "mlrun", "zenml", "evidently",
+        "mlflow",
+        "wandb",
+        "kubeflow",
+        "airflow",
+        "prefect",
+        "dagster",
+        "vllm",
+        "triton",
+        "tgi",
+        "bento",
+        "ollama",
+        "ray",
+        "kuberay",
+        "mlrun",
+        "zenml",
+        "evidently",
         # Infrastructure
-        "kubernetes", "k8s", "docker", "helm", "terraform", "ansible",
-        "aws", "gcp", "azure", "gke", "eks", "aks",
+        "kubernetes",
+        "k8s",
+        "docker",
+        "helm",
+        "terraform",
+        "ansible",
+        "aws",
+        "gcp",
+        "azure",
+        "gke",
+        "eks",
+        "aks",
         # Data
-        "postgresql", "mysql", "redis", "clickhouse", "snowflake", "bigquery",
-        "kafka", "pulsar", "spark", "flink", "dbt",
+        "postgresql",
+        "mysql",
+        "redis",
+        "clickhouse",
+        "snowflake",
+        "bigquery",
+        "kafka",
+        "pulsar",
+        "spark",
+        "flink",
+        "dbt",
         # Vector DBs
-        "pinecone", "weaviate", "milvus", "qdrant", "chroma", "pgvector",
+        "pinecone",
+        "weaviate",
+        "milvus",
+        "qdrant",
+        "chroma",
+        "pgvector",
         # Monitoring
-        "prometheus", "grafana", "datadog", "newrelic",
+        "prometheus",
+        "grafana",
+        "datadog",
+        "newrelic",
     ]
-    
+
     text_lower = text.lower()
     found = []
     for kw in tech_keywords:
         if kw in text_lower and kw not in found:
             found.append(kw)
-    
+
     return found
 
 
 # ══════════════════════════════════════════════════════════════════
 # Main Node Function
 # ══════════════════════════════════════════════════════════════════
+
 
 def node_scraper(state: AgentState) -> AgentState:
     """
@@ -215,11 +295,15 @@ def node_scraper(state: AgentState) -> AgentState:
 
     # Example 1: Fetch financial/business news via RSS
     try:
-        rss_result = fetch_financial_news_rss.invoke({
-            "feed_url": "http://feeds.bbci.co.uk/news/business/rss.xml",
-            "max_items": 5,
-        })
-        logger.info(f"[Scraper] RSS fetch returned {len(rss_result.get('articles', []))} articles")
+        rss_result = fetch_financial_news_rss.invoke(
+            {
+                "feed_url": "http://feeds.bbci.co.uk/news/business/rss.xml",
+                "max_items": 5,
+            }
+        )
+        logger.info(
+            f"[Scraper] RSS fetch returned {len(rss_result.get('articles', []))} articles"
+        )
 
         if rss_result.get("articles"):
             for article in rss_result["articles"][:2]:
@@ -238,8 +322,12 @@ def node_scraper(state: AgentState) -> AgentState:
                     fiscal_period=None,
                 )
                 existing_metrics = state.get("company_metrics", [])
-                existing_tickers = {m.get("ticker") for m in existing_metrics if m.get("ticker")}
-                state["company_metrics"] = existing_metrics + [mock_metrics.model_dump(mode="json")]
+                existing_tickers = {
+                    m.get("ticker") for m in existing_metrics if m.get("ticker")
+                }
+                state["company_metrics"] = existing_metrics + [
+                    mock_metrics.model_dump(mode="json")
+                ]
     except Exception as e:
         logger.warning(f"[Scraper] RSS fetch failed: {e}")
 
@@ -247,23 +335,29 @@ def node_scraper(state: AgentState) -> AgentState:
     try:
         # Ensure URL is string (fix HttpUrl -> str conversion)
         url = str("https://nexustech.com/careers")
-        page_result = fetch_webpage_playwright.invoke({
-            "url": url,
-            "wait_for_selector": ".job-listings",
-            "wait_for_timeout": 5000,
-        })
-        logger.info(f"[Scraper] Playwright stub returned page: {page_result.get('title')}")
+        page_result = fetch_webpage_playwright.invoke(
+            {
+                "url": url,
+                "wait_for_selector": ".job-listings",
+                "wait_for_timeout": 5000,
+            }
+        )
+        logger.info(
+            f"[Scraper] Playwright stub returned page: {page_result.get('title')}"
+        )
 
-        state["raw_scraped_pages"].append({
-            "url": page_result["url"],
-            "html": page_result["html"],
-            "markdown": page_result["markdown"],
-            "metadata": {
-                "scraped_at": page_result["scraped_at"],
-                "scraper": "playwright-stub",
-                "status": 200,
-            },
-        })
+        state["raw_scraped_pages"].append(
+            {
+                "url": page_result["url"],
+                "html": page_result["html"],
+                "markdown": page_result["markdown"],
+                "metadata": {
+                    "scraped_at": page_result["scraped_at"],
+                    "scraper": "playwright-stub",
+                    "status": 200,
+                },
+            }
+        )
     except Exception as e:
         logger.warning(f"[Scraper] Playwright fetch failed: {e}")
 
@@ -307,9 +401,31 @@ def node_scraper(state: AgentState) -> AgentState:
             remote_policy=RemotePolicy.HYBRID,
             experience_level=ExperienceLevel.SENIOR,
             department="AI Platform",
-            tech_stack=["Python", "PyTorch", "LangGraph", "LangChain", "Kubernetes", "AWS", "MLflow", "Ray"],
-            skills_required=["Agentic AI", "LLM Fine-tuning", "RAG Systems", "Multi-Agent Orchestration", "Tool Use"],
-            skills_preferred=["vLLM", "Triton", "KubeRay", "MLOps", "Model Serving", "Vector Databases"],
+            tech_stack=[
+                "Python",
+                "PyTorch",
+                "LangGraph",
+                "LangChain",
+                "Kubernetes",
+                "AWS",
+                "MLflow",
+                "Ray",
+            ],
+            skills_required=[
+                "Agentic AI",
+                "LLM Fine-tuning",
+                "RAG Systems",
+                "Multi-Agent Orchestration",
+                "Tool Use",
+            ],
+            skills_preferred=[
+                "vLLM",
+                "Triton",
+                "KubeRay",
+                "MLOps",
+                "Model Serving",
+                "Vector Databases",
+            ],
             payout_min=4_500_000,  # 45 LPA INR
             payout_max=6_500_000,  # 65 LPA INR
             equity_min=500_000,
@@ -343,9 +459,31 @@ def node_scraper(state: AgentState) -> AgentState:
             remote_policy=RemotePolicy.REMOTE_FRIENDLY,
             experience_level=ExperienceLevel.STAFF,
             department="ML Platform",
-            tech_stack=["Go", "Python", "Kubernetes", "vLLM", "Triton", "MLflow", "Prometheus", "ClickHouse"],
-            skills_required=["LLMOps", "Model Serving", "GPU Cluster Management", "ML Platform", "A/B Testing", "Drift Detection"],
-            skills_preferred=["KubeRay", "BentoML", "Evidently", "Feature Store", "Model Registry"],
+            tech_stack=[
+                "Go",
+                "Python",
+                "Kubernetes",
+                "vLLM",
+                "Triton",
+                "MLflow",
+                "Prometheus",
+                "ClickHouse",
+            ],
+            skills_required=[
+                "LLMOps",
+                "Model Serving",
+                "GPU Cluster Management",
+                "ML Platform",
+                "A/B Testing",
+                "Drift Detection",
+            ],
+            skills_preferred=[
+                "KubeRay",
+                "BentoML",
+                "Evidently",
+                "Feature Store",
+                "Model Registry",
+            ],
             payout_min=6_000_000,  # 60 LPA INR
             payout_max=9_000_000,  # 90 LPA INR
             equity_min=1_000_000,
@@ -378,8 +516,21 @@ def node_scraper(state: AgentState) -> AgentState:
             remote_policy=RemotePolicy.ONSITE,
             experience_level=ExperienceLevel.MID,
             department="AI Research",
-            tech_stack=["Java", "Python", "PostgreSQL", "Redis", "Kafka", "Docker", "Kubernetes"],
-            skills_required=["Distributed Systems", "Backend Development", "Agent Frameworks", "Workflow Engines"],
+            tech_stack=[
+                "Java",
+                "Python",
+                "PostgreSQL",
+                "Redis",
+                "Kafka",
+                "Docker",
+                "Kubernetes",
+            ],
+            skills_required=[
+                "Distributed Systems",
+                "Backend Development",
+                "Agent Frameworks",
+                "Workflow Engines",
+            ],
             skills_preferred=["LangGraph", "Temporal", "Actix", "Vector Search", "RAG"],
             payout_min=2_800_000,  # 28 LPA INR
             payout_max=4_200_000,  # 42 LPA INR
@@ -413,9 +564,29 @@ def node_scraper(state: AgentState) -> AgentState:
             remote_policy=RemotePolicy.HYBRID,
             experience_level=ExperienceLevel.SENIOR,
             department="AI Products",
-            tech_stack=["Python", "PyTorch", "JAX", "LangGraph", "LangChain", "Kubernetes", "GCP", "TPU"],
-            skills_required=["Autonomous Agents", "LLM Reasoning", "Multi-Agent Systems", "Planning", "Tool Use"],
-            skills_preferred=["AlphaGeometry", "Tree of Thoughts", "Self-Refine", "Constitutional AI"],
+            tech_stack=[
+                "Python",
+                "PyTorch",
+                "JAX",
+                "LangGraph",
+                "LangChain",
+                "Kubernetes",
+                "GCP",
+                "TPU",
+            ],
+            skills_required=[
+                "Autonomous Agents",
+                "LLM Reasoning",
+                "Multi-Agent Systems",
+                "Planning",
+                "Tool Use",
+            ],
+            skills_preferred=[
+                "AlphaGeometry",
+                "Tree of Thoughts",
+                "Self-Refine",
+                "Constitutional AI",
+            ],
             payout_min=5_500_000,  # 55 LPA INR
             payout_max=8_500_000,  # 85 LPA INR
             equity_min=2_000_000,
@@ -446,11 +617,20 @@ def node_scraper(state: AgentState) -> AgentState:
 
     existing_tickers = {m.get("ticker") for m in existing_metrics if m.get("ticker")}
     if mock_metrics.ticker not in existing_tickers:
-        state["company_metrics"] = existing_metrics + [mock_metrics.model_dump(mode="json")]
+        state["company_metrics"] = existing_metrics + [
+            mock_metrics.model_dump(mode="json")
+        ]
 
     existing_job_ids = {j.get("job_id") for j in existing_jobs if j.get("job_id")}
-    new_job_dicts = [j.model_dump(mode="json") for j in mock_jobs if j.job_id not in existing_job_ids]
-    state["job_openings"] = existing_jobs + new_job_dicts
+    new_job_dicts = [
+        j.model_dump(mode="json") for j in mock_jobs if j.job_id not in existing_job_ids
+    ]
 
-    logger.info(f"[Scraper] Added 1 company, {len(new_job_dicts)} India-relevant Agentic/LLMOps jobs")
+    # Apply early-stopping guardrails
+    filtered_jobs = filter_jobs(new_job_dicts)
+    state["job_openings"] = existing_jobs + filtered_jobs
+
+    logger.info(
+        f"[Scraper] Added 1 company, {len(filtered_jobs)} India-relevant Agentic/LLMOps jobs (after guardrails)"
+    )
     return state
