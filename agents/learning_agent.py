@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import logging
 import time
+import os
+import yaml
+import json
 from datetime import datetime
-from typing import Any, Dict, List, Set
-
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import HumanMessage
 from schemas import AgentState
 
 logger = logging.getLogger("alpha_nexus.agents.learning")
@@ -20,339 +23,14 @@ logger = logging.getLogger("alpha_nexus.agents.learning")
 # Personal Profile - Anmol Sharma (Embedded for Learning Agent)
 # ══════════════════════════════════════════════════════════════════
 
-# Reuse the same profile from career_agent but add learning-relevant fields
-USER_PROFILE = {
-    "name": "Anmol Sharma",
-    "education": "IIT Mandi - B.Tech (Data Science & AI Minor)",
-    "location": "Jaipur, Rajasthan, India",
-    "skills": [
-        # Core ML/DL
-        "Python", "PyTorch", "TensorFlow", "JAX", "NumPy", "Pandas", "Scikit-learn",
-        # Agentic/LLM
-        "LangGraph", "LangChain", "LlamaIndex", "RAG", "Multi-Agent Systems", 
-        "Tool Use", "Function Calling", "Prompt Engineering", "LLM Fine-tuning",
-        # MLOps/LLMOps
-        "MLflow", "Weights & Biases", "Kubeflow", "Airflow", "Prefect", "Dagster",
-        "vLLM", "Triton", "TGI", "BentoML", "Ray", "KubeRay",
-        # Infrastructure
-        "Kubernetes", "Docker", "AWS", "GCP", "Terraform", "Helm",
-        "PostgreSQL", "Redis", "ClickHouse", "Kafka",
-        # Vector/Search
-        "Pinecone", "Weaviate", "Milvus", "Qdrant", "Chroma", "pgvector",
-        # Backend
-        "FastAPI", "gRPC", "Microservices", "System Design",
-    ],
-    "skill_levels": {
-        "Python": "expert",
-        "PyTorch": "advanced",
-        "TensorFlow": "intermediate",
-        "JAX": "intermediate",
-        "LangGraph": "advanced",
-        "LangChain": "advanced",
-        "RAG": "advanced",
-        "Multi-Agent Systems": "advanced",
-        "LLM Fine-tuning": "intermediate",
-        "MLflow": "intermediate",
-        "Weights & Biases": "intermediate",
-        "Kubeflow": "beginner",
-        "Airflow": "intermediate",
-        "Prefect": "intermediate",
-        "Dagster": "beginner",
-        "vLLM": "intermediate",
-        "Triton": "beginner",
-        "Ray": "intermediate",
-        "Kubernetes": "advanced",
-        "Docker": "expert",
-        "AWS": "intermediate",
-        "GCP": "intermediate",
-        "FastAPI": "advanced",
-        "gRPC": "intermediate",
-        "pgvector": "intermediate",
-        "Chroma": "intermediate",
-    },
-    "target_specialization": "Agentic AI Systems & LLMOps Infrastructure",
-    "excluded_domains": [
-        "rust", "c++", "high-frequency trading", "hft", "quant trading",
-        "embedded", "firmware", "device driver", "kernel",
-    ],
-}
+def load_user_profile():
+    profile_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "user_profile.yaml")
+    with open(profile_path, "r") as f:
+        return yaml.safe_load(f)
 
-# ══════════════════════════════════════════════════════════════════
-# Knowledge Base: Advanced Papers & Resources (Curated)
-# ══════════════════════════════════════════════════════════════════
-
-# These are representative ArXiv IDs and resource paths for the learning roadmap
-ADVANCED_PAPERS = {
-    "agentic_ai": [
-        {
-            "id": "2312.04511",
-            "title": "Language Agents with Reinforcement Learning",
-            "year": 2023,
-            "relevance": "core",
-            "tags": ["RL", "Language Agents", "Policy Optimization"],
-        },
-        {
-            "id": "2308.10378",
-            "title": "Generative Agents: Interactive Simulacra of Human Behavior",
-            "year": 2023,
-            "relevance": "core",
-            "tags": ["Multi-Agent", "Simulation", "Memory", "Planning"],
-        },
-        {
-            "id": "2402.01301",
-            "title": "AgentBench: Evaluating LLMs as Agents",
-            "year": 2024,
-            "relevance": "benchmark",
-            "tags": ["Benchmark", "Evaluation", "Tool Use"],
-        },
-        {
-            "id": "2401.03568",
-            "title": "WebShop: Towards Scalable Real-World Web Interaction",
-            "year": 2024,
-            "relevance": "applied",
-            "tags": ["Web Agents", "Real-World Tasks"],
-        },
-        {
-            "id": "2310.09129",
-            "title": "Reflexion: Language Agents with Verbal Reinforcement Learning",
-            "year": 2023,
-            "relevance": "core",
-            "tags": ["Self-Reflection", "Verbal RL", "Iterative Improvement"],
-        },
-        {
-            "id": "2305.10601",
-            "title": "Tree of Thoughts: Deliberate Problem Solving with LLMs",
-            "year": 2023,
-            "relevance": "core",
-            "tags": ["Reasoning", "Planning", "Search"],
-        },
-        {
-            "id": "2303.11366",
-            "title": "ReAct: Synergizing Reasoning and Acting in Language Models",
-            "year": 2023,
-            "relevance": "foundational",
-            "tags": ["Reasoning+Acting", "Tool Use"],
-        },
-        {
-            "id": "2402.15523",
-            "title": "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation",
-            "year": 2024,
-            "relevance": "core",
-            "tags": ["Multi-Agent", "Conversation", "Framework"],
-        },
-        {
-            "id": "2406.03271",
-            "title": "CrewAI: Framework for Orchestrating Role-Playing Autonomous AI Agents",
-            "year": 2024,
-            "relevance": "applied",
-            "tags": ["Multi-Agent", "Role-Playing", "Orchestration"],
-        },
-        {
-            "id": "2404.01408",
-            "title": "LangGraph: Stateful Multi-Agent Orchestration with Cyclic Graphs",
-            "year": 2024,
-            "relevance": "core",
-            "tags": ["LangGraph", "Stateful", "Cyclic", "Production"],
-        },
-    ],
-    "llmops_infrastructure": [
-        {
-            "id": "2403.19342",
-            "title": "vLLM: Easy, Fast, and Cheap LLM Serving with PagedAttention",
-            "year": 2024,
-            "relevance": "core",
-            "tags": ["vLLM", "PagedAttention", "Serving", "KV Cache"],
-        },
-        {
-            "id": "2401.07893",
-            "title": "TensorRT-LLM: High-Performance LLM Inference on NVIDIA GPUs",
-            "year": 2024,
-            "relevance": "core",
-            "tags": ["TensorRT", "Inference", "Optimization"],
-        },
-        {
-            "id": "2311.15666",
-            "title": "FrugalGPT: How to Use LLMs While Reducing Cost and Improving Performance",
-            "year": 2023,
-            "relevance": "applied",
-            "tags": ["Cost Optimization", "Cascade", "Routing"],
-        },
-        {
-            "id": "2402.12183",
-            "title": "Speculative Decoding: Accelerating LLM Inference",
-            "year": 2024,
-            "relevance": "core",
-            "tags": ["Speculative Decoding", "Draft Model", "Speedup"],
-        },
-        {
-            "id": "2310.20702",
-            "title": "S-LoRA: Serving Thousands of Concurrent LoRA Adapters",
-            "year": 2023,
-            "relevance": "advanced",
-            "tags": ["LoRA", "Batching", "Multi-Tenant"],
-        },
-        {
-            "id": "2404.14310",
-            "title": "LMCache: KV Cache Sharing for Fast LLM Serving",
-            "year": 2024,
-            "relevance": "advanced",
-            "tags": ["KV Cache", "Prefix Cache", "Sharing"],
-        },
-        {
-            "id": "2401.16097",
-            "title": "MuxServe: Flexible Spatial-Temporal Multiplexing for LLM Serving",
-            "year": 2024,
-            "relevance": "advanced",
-            "tags": ["Multiplexing", "GPU Sharing", "Scheduling"],
-        },
-    ],
-    "rag_advanced": [
-        {
-            "id": "2312.10997",
-            "title": "RAG vs. Fine-tuning: Pipelines, Tradeoffs, and a Case Study on Agriculture",
-            "year": 2023,
-            "relevance": "core",
-            "tags": ["RAG", "Fine-tuning", "Comparison"],
-        },
-        {
-            "id": "2402.03412",
-            "title": "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection",
-            "year": 2024,
-            "relevance": "core",
-            "tags": ["Self-RAG", "Critique", "Adaptive Retrieval"],
-        },
-        {
-            "id": "2404.16048",
-            "title": "GraphRAG: Unlocking LLM Reasoning on Graphs",
-            "year": 2024,
-            "relevance": "advanced",
-            "tags": ["GraphRAG", "Knowledge Graphs", "Reasoning"],
-        },
-        {
-            "id": "2401.18054",
-            "title": "Corrective RAG (CRAG): Improving Robustness via Retrieval Evaluation",
-            "year": 2024,
-            "relevance": "applied",
-            "tags": ["CRAG", "Evaluation", "Correction"],
-        },
-        {
-            "id": "2406.02429",
-            "title": "Agentic RAG: Agents for Retrieval-Augmented Generation",
-            "year": 2024,
-            "relevance": "core",
-            "tags": ["Agentic RAG", "Multi-hop", "Planning"],
-        },
-    ],
-    "mlops_platform": [
-        {
-            "id": "2402.10608",
-            "title": "KubeRay: Scaling Ray on Kubernetes",
-            "year": 2024,
-            "relevance": "core",
-            "tags": ["KubeRay", "Kubernetes", "Ray", "Distributed"],
-        },
-        {
-            "id": "2311.08746",
-            "title": "MLflow 2.0: An Open Platform for the ML Lifecycle",
-            "year": 2023,
-            "relevance": "foundational",
-            "tags": ["MLflow", "Tracking", "Registry", "Projects"],
-        },
-        {
-            "id": "2403.15432",
-            "title": "Feast: Feature Store for ML at Scale",
-            "year": 2024,
-            "relevance": "applied",
-            "tags": ["Feature Store", "Feast", "Online/Offline"],
-        },
-        {
-            "id": "2404.12222",
-            "title": "Evidently: Open-Source ML Monitoring and Observability",
-            "year": 2024,
-            "relevance": "applied",
-            "tags": ["Monitoring", "Drift Detection", "Data Quality"],
-        },
-    ],
-    "backend_architecture": [
-        {
-            "id": "2401.12109",
-            "title": "Designing Data-Intensive Applications (DDIA) - Key Patterns for ML Systems",
-            "year": 2024,
-            "relevance": "foundational",
-            "tags": ["System Design", "Data Intensive", "Scalability"],
-        },
-        {
-            "id": "2312.04567",
-            "title": "Microservices Patterns for Machine Learning Systems",
-            "year": 2023,
-            "relevance": "applied",
-            "tags": ["Microservices", "ML Systems", "Architecture"],
-        },
-    ],
-    "neuro_symbolic": [
-        {
-            "id": "2402.01045",
-            "title": "Neuro-Symbolic AI: Integrating Neural Networks with Symbolic Reasoning",
-            "year": 2024,
-            "relevance": "core",
-            "tags": ["Neuro-Symbolic", "Reasoning", "Logic"],
-        },
-        {
-            "id": "2311.12037",
-            "title": "DeepProbLog: Neural Probabilistic Logic Programming",
-            "year": 2023,
-            "relevance": "advanced",
-            "tags": ["Probabilistic Logic", "Neural-Symbolic"],
-        },
-    ],
-}
+USER_PROFILE = load_user_profile()
 
 
-LEARNING_RESOURCES = {
-    "courses": [
-        {
-            "title": "Full Stack LLM Bootcamp (Hamel Husain)",
-            "url": "https://github.com/huggingface/llm-bootcamp",
-            "focus": ["LLM Evaluation", "RAG", "Fine-tuning", "Production"],
-            "level": "advanced",
-        },
-        {
-            "title": "LLMOps Specialization (DeepLearning.AI)",
-            "url": "https://www.deeplearning.ai/courses/llmops/",
-            "focus": ["MLOps for LLMs", "Evaluation", "Deployment", "Monitoring"],
-            "level": "advanced",
-        },
-        {
-            "title": "Advanced RAG Techniques (LlamaIndex)",
-            "url": "https://docs.llamaindex.ai/en/stable/examples/advanced_retrieval/",
-            "focus": ["Advanced RAG", "Query Rewriting", "Hybrid Search", "Agentic RAG"],
-            "level": "advanced",
-        },
-        {
-            "title": "Kubernetes for ML Engineers (CNCF)",
-            "url": "https://www.cncf.io/training/",
-            "focus": ["K8s", "Operators", "GPU Scheduling", "KubeRay"],
-            "level": "intermediate",
-        },
-    ],
-    "blogs_series": [
-        {
-            "title": "LLM Inference Optimization Series (vLLM Blog)",
-            "url": "https://blog.vllm.ai/",
-            "focus": ["PagedAttention", "Chunked Prefill", "Speculative Decoding", "Prefix Cache"],
-        },
-        {
-            "title": "Agentic Workflows (LangChain Blog)",
-            "url": "https://blog.langchain.dev/",
-            "focus": ["LangGraph", "Multi-Agent", "Human-in-the-loop", "Persistence"],
-        },
-        {
-            "title": "ML Platform Engineering (Uber/Netflix/Airbnb blogs)",
-            "url": "https://eng.uber.com/category/machine-learning/",
-            "focus": ["Feature Stores", "Model Serving", "A/B Testing", "Experimentation"],
-        },
-    ],
-}
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -517,92 +195,68 @@ def build_learning_phases(
 
 def node_learning_companion(state: AgentState) -> AgentState:
     """
-    Learning Companion Agent: Analyzes skill gaps from scraped job specs
-    and recommends advanced architectural papers, deep backend design patterns,
-    and cutting-edge LLMOps/MLOps infrastructure paradigms.
-    
-    Completely skips introductory syntax. Targets IIT Mandi advanced level.
+    Learning Companion Agent: Analyzes skill gaps using Gemini.
     """
-    logger.info("[Learning Companion] Analyzing skill gaps for Anmol Sharma (IIT Mandi)...")
+    logger.info("[Learning Companion] Analyzing skill gaps using Gemini LLM...")
     state["current_agent"] = "learning_companion"
     state["updated_at"] = datetime.now()
 
-    time.sleep(0.1)
-
-    # Get career recommendations to extract missing skills
     career_recs = state.get("career_recommendations", [])
     if not career_recs:
         logger.warning("[Learning Companion] No career recommendations to analyze")
         state["learning_roadmap"] = {"error": "No career data available for gap analysis"}
         return state
 
-    # Aggregate all missing skills
     skill_gaps = extract_missing_skills_from_jobs(career_recs)
     
     if not skill_gaps:
         logger.info("[Learning Companion] No significant skill gaps detected")
         state["learning_roadmap"] = {
             "status": "complete",
-            "message": "Profile well-aligned with target roles. Consider specialization deepening.",
+            "message": "Profile well-aligned with target roles.",
             "skill_gaps": {},
         }
         return state
 
     logger.info(f"[Learning Companion] Top skill gaps: {list(skill_gaps.items())[:10]}")
 
-    # Get paper recommendations
-    paper_recs = get_paper_recommendations(skill_gaps)
+    # Invoke Gemini
+    try:
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
+        prompt = f"""
+You are an expert AI Career Coach for {USER_PROFILE['name']}.
+Their profile: {json.dumps(USER_PROFILE)}
 
-    # Build structured learning phases
-    phases = build_learning_phases(paper_recs, skill_gaps)
+They applied to several jobs and are missing these skills:
+{json.dumps(skill_gaps)}
 
-    # Calculate total timeline
-    total_weeks = sum(p["estimated_weeks"] for p in phases)
-
-    # Personalized for Anmol's profile
-    roadmap = {
-        "profile": {
-            "name": USER_PROFILE["name"],
-            "education": USER_PROFILE["education"],
-            "target": USER_PROFILE["target_specialization"],
-            "current_skills_count": len(USER_PROFILE["skills"]),
-        },
-        "gap_analysis": {
-            "total_unique_gaps": len(skill_gaps),
-            "top_gaps": dict(list(skill_gaps.items())[:10]),
-            "categories": dict(
-                sorted(
-                    {
-                        cat: sum(1 for s in skill_gaps if categorize_skill(s) == cat)
-                        for cat in set(categorize_skill(s) for s in skill_gaps)
-                    }.items(),
-                    key=lambda x: -x[1]
-                )
-            ),
-        },
-        "paper_recommendations": paper_recs,
-        "learning_phases": phases,
-        "timeline": {
-            "total_weeks": total_weeks,
-            "total_months": round(total_weeks / 4.3, 1),
-            "phases_count": len(phases),
-        },
-        "resource_links": {
-            "courses": LEARNING_RESOURCES["courses"],
-            "blogs": LEARNING_RESOURCES["blogs_series"],
-        },
-        "next_actions": [
-            f"Start Phase 1: {phases[0]['title']} - Read top 3 papers this week",
-            "Set up local GPU environment for LLM serving experiments (vLLM/Triton)",
-            "Implement a minimal LangGraph multi-agent workflow from scratch",
-            "Deploy a RAG pipeline with pgvector and evaluate retrieval quality",
-            "Build a model monitoring dashboard with Evidently/Prometheus",
-        ],
-        "generated_at": datetime.now().isoformat(),
-        "excluded_domains_respected": USER_PROFILE["excluded_domains"],
-    }
+Generate a personalized learning roadmap. 
+You must output ONLY raw JSON matching this schema:
+{{
+  "profile": {{"name": "...", "target": "..."}},
+  "gap_analysis": {{"top_gaps": {{"skill": count}}}},
+  "paper_recommendations": [
+    {{"arxiv_id": "...", "title": "...", "year": 2024, "relevance": "core", "tags": ["..."]}}
+  ],
+  "learning_phases": [
+    {{"phase_id": "phase_1", "title": "...", "description": "...", "skills_covered": ["..."], "estimated_weeks": 2, "milestones": ["..."]}}
+  ],
+  "next_actions": ["..."]
+}}
+Do NOT use markdown code blocks. Output the raw JSON object.
+"""
+        response = llm.invoke([HumanMessage(content=prompt)])
+        content = response.content.strip()
+        if content.startswith("```json"):
+            content = content[7:-3]
+        elif content.startswith("```"):
+            content = content[3:-3]
+        
+        roadmap = json.loads(content)
+        roadmap["generated_at"] = datetime.now().isoformat()
+    except Exception as e:
+        logger.error(f"[Learning Companion] Failed to generate/parse LLM roadmap: {e}")
+        roadmap = {"error": f"LLM generation failed: {str(e)}"}
 
     state["learning_roadmap"] = roadmap
-
-    logger.info(f"[Learning Companion] Generated roadmap: {len(phases)} phases, {total_weeks} weeks, {len(paper_recs)} papers")
     return state
