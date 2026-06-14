@@ -98,7 +98,7 @@ Agents are routed **sequentially** by the Supervisor based on query intent — n
 | **Scraper Agent** | Playwright, BeautifulSoup, `feedparser` | JS rendering, static parsing, RSS, India platforms |
 | **Financial Analyst** | Custom scoring engine | ARR growth, burn multiple, ESOP transparency, runway — India private-market metrics |
 | **Career Strategy** | Skill-gap + comp matching | Stack extraction, INR/LPA benchmarking, city/remote filter, priority ranking |
-| **Learning Companion** | Gap analysis + curated KB | ArXiv papers, LLMOps paradigms, phase-based roadmap |
+| **Learning Companion** | Gap analysis + Gemini AI | Generates dynamic ArXiv roadmap and phases using LLM |
 | **Guardrail Node** | Rule-based filter | Strips excluded domains (HFT, firmware), deduplicates before synthesis |
 | **Knowledge Base** | PostgreSQL + pgvector (async) | Vector search over jobs/resumes/papers, LangGraph checkpoints |
 | **API Gateway** | FastAPI + SSE | `/api/chat` sync, `/api/chat/stream` SSE, `/health`, `/api/v1/status` |
@@ -115,7 +115,7 @@ cd Disha
 python -m venv venv
 source venv/bin/activate
 
-pip install fastapi uvicorn sqlalchemy asyncpg pgvector numpy feedparser langchain-core pydantic
+pip install -r requirements.txt
 
 # Run a query directly
 python main.py "Find Agentic AI and backend roles in Bangalore"
@@ -184,7 +184,7 @@ Disha/
 
 ## Configuration
 
-Disha's profile matching is fully configurable via `agents/career_agent.py` and `agents/learning_agent.py`. The default profile targets India-based AI/ML engineering roles:
+Disha's profile matching is fully configurable via `user_profile.yaml`. The default profile targets India-based AI/ML engineering roles:
 
 | Parameter | Default |
 |-----------|---------|
@@ -192,7 +192,11 @@ Disha's profile matching is fully configurable via `agents/career_agent.py` and 
 | Target cities | Bangalore, Delhi NCR, Pune, Hyderabad, Remote India |
 | Salary floor | ₹20 LPA base |
 | Excluded domains | HFT, embedded, firmware, kernel |
-| Learning focus | LLMOps infra, agentic systems, ArXiv-level ML research |
+
+Also, add your Google Gemini API key to a `.env` file in the root directory:
+```bash
+GEMINI_API_KEY="your_api_key_here"
+```
 
 ---
 
@@ -212,8 +216,8 @@ Disha's profile matching is fully configurable via `agents/career_agent.py` and 
 ### Phase 2 — Live Data & LLM Integration 🔧
 
 - [ ] Live Playwright scraping — Naukri, LinkedIn India, company portals
+- [x] Dynamic Generative AI Learning Companion (Gemini 2.5 Flash integrated)
 - [ ] LLM-based resume evaluation (replace keyword stub)
-- [ ] Dynamic ArXiv API integration in Learning Companion
 - [ ] pgvector semantic search activation
 - [ ] Cover letter generator
 
