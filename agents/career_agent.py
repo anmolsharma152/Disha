@@ -9,6 +9,8 @@ import logging
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Set
+import os
+import yaml
 
 from schemas import (
     AgentState,
@@ -24,54 +26,12 @@ logger = logging.getLogger("alpha_nexus.agents.career")
 # Personal Profile - Anmol Sharma
 # ══════════════════════════════════════════════════════════════════
 
-USER_PROFILE = {
-    "name": "Anmol Sharma",
-    "education": "IIT Mandi - B.Tech (Data Science & AI Minor)",
-    "location": "Jaipur, Rajasthan, India",
-    "willing_to_relocate": True,
-    "target_cities": ["bangalore", "bengaluru", "delhi", "gurgaon", "gurugram", "noida", "pune", "hyderabad", "remote"],
-    "skills": [
-        # Core
-        "Python", "PyTorch", "TensorFlow", "JAX", "NumPy", "Pandas", "Scikit-learn",
-        # Agentic/LLM
-        "LangGraph", "LangChain", "LlamaIndex", "RAG", "Multi-Agent Systems", 
-        "Tool Use", "Function Calling", "Prompt Engineering", "LLM Fine-tuning",
-        # MLOps/LLMOps
-        "MLflow", "Weights & Biases", "Kubeflow", "Airflow", "Prefect", "Dagster",
-        "vLLM", "Triton", "TGI", "BentoML", "Ray", "KubeRay",
-        # Infrastructure
-        "Kubernetes", "Docker", "AWS", "GCP", "Terraform", "Helm",
-        "PostgreSQL", "Redis", "ClickHouse", "Kafka",
-        # Vector/Search
-        "Pinecone", "Weaviate", "Milvus", "Qdrant", "Chroma", "pgvector",
-        # Backend
-        "FastAPI", "gRPC", "Microservices", "System Design",
-    ],
-    "experience_years": 2,  # Student with internships/projects
-    "target_roles": [
-        "AI/ML Engineer",
-        "ML Engineer", 
-        "LLM Engineer",
-        "Agentic AI Engineer",
-        "LLMOps Engineer",
-        "ML Platform Engineer",
-        "Backend Engineer - AI/ML",
-        "Data Scientist",
-        "Research Engineer",
-    ],
-    "min_base_salary_inr": 2_000_000,  # 20 LPA
-    "prefer_remote": True,
-    "remote_only_ok": True,
-    "visa_required": False,  # Indian citizen
-    "excluded_domains": [
-        "rust", "c++", "high-frequency trading", "hft", "quant trading",
-        "embedded", "firmware", "device driver", "kernel",
-    ],
-    "excluded_keywords": [
-        "rust", "c++", "hft", "high frequency", "quantitative trading",
-        "market making", "latency", "fpga", "verilog", "vhdl",
-    ],
-}
+def load_user_profile():
+    profile_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "user_profile.yaml")
+    with open(profile_path, "r") as f:
+        return yaml.safe_load(f)
+
+USER_PROFILE = load_user_profile()
 
 
 def normalize_location(location: str) -> str:
