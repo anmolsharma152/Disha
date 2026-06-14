@@ -11,8 +11,13 @@ from __future__ import annotations
 
 import logging
 import uuid
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Literal
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 from langgraph.graph import END, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
@@ -167,11 +172,21 @@ def node_synthesize(state: AgentState) -> AgentState:
         sections.append(f"\n## Personalized Learning Roadmap ({len(phases)} phases, {learning.get('timeline', {}).get('total_weeks', 0)} weeks)")
         for phase in phases:
             sections.append(f"\n### {phase['title']} ({phase['estimated_weeks']} weeks)")
-            sections.append(f"- **Skills to acquire**: {', '.join(phase['skills_covered'][:5])}")
-            sections.append(f"- **Key papers**: {len(phase['papers'])} papers")
-            for p in phase["papers"][:3]:
-                sections.append(f"  - [{p['arxiv_id']}] {p['title']} ({p['year']}) -- {p['relevance']}")
-            sections.append(f"- **Milestones**: {'; '.join(phase['milestones'])}")
+            skills = phase.get('skills_covered', [])
+            if skills:
+                sections.append(f"- **Skills to acquire**: {', '.join(skills[:5])}")
+            papers = phase.get('papers', [])
+            if papers:
+                sections.append(f"- **Key papers**: {len(papers)} papers")
+                for p in papers[:3]:
+                    sections.append(f"  - [{p.get('arxiv_id', 'id')}] {p.get('title', 'Unknown Title')} ({p.get('year', 'N/A')}) -- {p.get('relevance', 'N/A')}")
+            sections.append(f"- **Milestones**: {'; '.join(phase.get('milestones', []))}")
+        
+        paper_recs = learning.get('paper_recommendations', [])
+        if paper_recs:
+            sections.append(f"\n### Recommended Papers")
+            for p in paper_recs[:5]:
+                sections.append(f"- [{p.get('arxiv_id', 'id')}] {p.get('title', 'Unknown Title')} ({p.get('year', 'N/A')}) -- {p.get('relevance', 'N/A')}")
         
         sections.append(f"\n**Next Actions**:")
         for action in learning.get("next_actions", [])[:3]:
@@ -283,7 +298,7 @@ def build_graph() -> StateGraph:
             "career_strategy": "career_strategy",
             "learning_companion": "learning_companion",
             "error_recovery": "error_recovery",
-            "synthesize": "synthesize",
+            "synthesize": "guardrail",
             "end": END,
         },
     )
@@ -291,8 +306,8 @@ def build_graph() -> StateGraph:
     # All sub-agents route back to supervisor (except career/financial/learning go to guardrail first)
     workflow.add_edge("scraper", "supervisor")
     workflow.add_edge("financial_analyst", "supervisor")
-    workflow.add_edge("career_strategy", "guardrail")
-    workflow.add_edge("learning_companion", "guardrail")
+    workflow.add_edge("career_strategy", "supervisor")
+    workflow.add_edge("learning_companion", "supervisor")
     workflow.add_edge("error_recovery", "supervisor")
 
     # Guardrail always goes to synthesize
