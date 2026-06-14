@@ -1,0 +1,22 @@
+# Web & API
+fastapi
+uvicorn
+
+# Database & Storage
+sqlalchemy
+asyncpg
+pgvector
+
+# Data Processing
+numpy
+feedparser
+pyyaml
+pydantic
+
+# LLM & Orchestration
+langchain-core
+langchain-google-genai
+langgraph
+
+# Utilities
+python-dotenv
