@@ -2,6 +2,9 @@
 Project Alpha-Nexus - LangGraph Multi-Agent Orchestrator
 Main entry point compiling the state graph with Supervisor pattern.
 Uses modular agents from agents/ package.
+
+# NOTE: Specialist agents currently run on fixture data and deterministic scoring; 
+# real LLM integration and dynamic scraping is planned for Phase 2.
 """
 
 from __future__ import annotations
