@@ -171,7 +171,17 @@ def node_supervisor(state: AgentState) -> AgentState:
         logger.info("[Supervisor] First iteration -> delegating to Scraper")
         return state
 
-    elif state.get("routing_key") == "scraper" and (has_metrics or has_jobs):
+    elif state.get("routing_key") == "scraper":
+        # Check for errors first
+        if any(e.get("severity") == "error" for e in state.get("error_log", [])):
+            state["routing_key"] = "error_recovery"
+            logger.warning("[Supervisor] Errors detected during scraping -> routing to Error Recovery")
+            return state
+        if not has_metrics and not has_jobs:
+            # Scraper returned no data and no errors — should not happen, but guard
+            state["routing_key"] = "end"
+            logger.warning("[Supervisor] Scraper returned no data -> END")
+            return state
         # Scraper returned data -> analyze
         if any(kw in query for kw in ["invest", "stock", "financial", "risk", "valuation", "market"]):
             state["routing_key"] = "financial_analyst"

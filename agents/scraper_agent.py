@@ -343,6 +343,13 @@ def node_scraper(state: AgentState) -> AgentState:
                 ]
     except Exception as e:
         logger.warning(f"[Scraper] RSS fetch failed: {e}")
+        state["error_log"].append({
+            "agent": "scraper",
+            "tool": "fetch_financial_news_rss",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "severity": "warning",
+        })
 
     # Scrape a real webpage via Playwright
     try:
@@ -372,6 +379,13 @@ def node_scraper(state: AgentState) -> AgentState:
         )
     except Exception as e:
         logger.warning(f"[Scraper] Playwright fetch failed: {e}")
+        state["error_log"].append({
+            "agent": "scraper",
+            "tool": "fetch_webpage_playwright",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "severity": "error",
+        })
 
     # 2. Fetch jobs from Greenhouse API (structured data, preferred path)
     new_job_dicts: List[Dict[str, Any]] = []

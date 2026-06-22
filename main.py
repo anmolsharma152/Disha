@@ -235,6 +235,9 @@ def node_error_recovery(state: AgentState) -> AgentState:
     error_log = state.get("error_log", [])
     last_error = error_log[-1] if error_log else {"agent": "unknown", "error": "unknown"}
 
+    # Clear error_log so supervisor doesn't re-route here
+    state["error_log"] = []
+
     # Determine which stage failed
     failed_agent = last_error.get("agent", "scraper")
 
