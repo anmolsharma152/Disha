@@ -69,7 +69,7 @@ class ChatResponse(BaseModel):
 # ──────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="Alpha-Nexus API",
+    title="Disha API",
     description="Personal Intelligence OS - Market Intelligence & Career Optimization",
     version="0.1.0",
     docs_url="/docs",
@@ -96,7 +96,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "service": "alpha-nexus-api",
+        "service": "disha-api",
         "version": "0.1.0",
         "timestamp": datetime.utcnow().isoformat(),
     }

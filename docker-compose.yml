@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: alpha_nexus
+      POSTGRES_DB: disha
     ports:
       - "5432:5432"
     volumes:

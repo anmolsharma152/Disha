@@ -416,7 +416,7 @@ if __name__ == "__main__":
     import argparse
     import json
 
-    parser = argparse.ArgumentParser(description="Project Alpha-Nexus - Market Intelligence & Career Optimization")
+    parser = argparse.ArgumentParser(description="Disha - Market Intelligence & Career Optimization")
     parser.add_argument("query", nargs="?", default="Find Agentic AI and Backend roles in Bangalore on Naukri and suggest an LLMOps learning roadmap")
     parser.add_argument("--user-id", default="cli_user")
     parser.add_argument("--session-id", default=None)
