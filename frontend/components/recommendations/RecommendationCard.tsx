@@ -12,8 +12,8 @@ import { Badge } from "@/components/ui/badge"
 
 const PRIORITY_STYLES: Record<string, string> = {
   high: "border-l-2 border-l-amber-500",
-  medium: "",
-  low: "opacity-70",
+  medium: "border-l-2 border-l-transparent",
+  low: "border-l-2 border-l-transparent opacity-60",
 }
 
 const FIT_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -23,12 +23,43 @@ const FIT_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "ou
   unavailable: "outline",
 }
 
+function displayLocation(rec: CareerRecommendation): string | null {
+  if (rec.location && rec.location !== "None, None" && rec.location !== "None") {
+    return rec.location
+  }
+  return null
+}
+
+function displayCompensation(rec: CareerRecommendation): string | null {
+  const c = rec.compensation
+  if (c.display_crores > 0) {
+    return `₹${c.display_crores.toFixed(2)}Cr`
+  }
+  if (c.display_lpa > 0) {
+    return `₹${c.display_lpa.toFixed(1)}L`
+  }
+  return null
+}
+
+function displayFit(label: string | boolean): string {
+  if (typeof label === "boolean") {
+    return label ? "Remote OK" : "Remote N/A"
+  }
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
 function RecommendationCard({
   recommendation: rec,
 }: {
   recommendation: CareerRecommendation
 }) {
   const priorityClass = PRIORITY_STYLES[rec.priority] ?? ""
+  const comp = displayCompensation(rec)
+  const location = displayLocation(rec)
+
+  const showRemoteBadge =
+    rec.remote_policy &&
+    rec.remote_policy !== "unknown"
 
   return (
     <Card size="sm" className={priorityClass}>
@@ -48,54 +79,48 @@ function RecommendationCard({
           </div>
         </div>
         <div className="flex flex-wrap gap-1">
-          <Badge variant="outline" className="text-[10px]">
-            {rec.remote_policy === "remote"
-              ? "Remote"
-              : rec.remote_policy === "hybrid"
-                ? "Hybrid"
-                : rec.remote_policy === "onsite"
-                  ? "On-site"
-                  : rec.remote_policy}
-          </Badge>
+          {showRemoteBadge && (
+            <Badge variant="outline" className="text-[10px]">
+              {rec.remote_policy === "remote"
+                ? "Remote"
+                : rec.remote_policy === "hybrid"
+                  ? "Hybrid"
+                  : rec.remote_policy === "onsite"
+                    ? "On-site"
+                    : rec.remote_policy}
+            </Badge>
+          )}
           <Badge variant="secondary" className="text-[10px]">
             Skills: {Math.round(rec.skill_match_pct)}%
           </Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
-        <p className="text-xs text-muted-foreground">{rec.location}</p>
+        {location && (
+          <p className="text-xs text-muted-foreground">{location}</p>
+        )}
 
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="space-y-0.5">
-            <span className="text-muted-foreground">Compensation</span>
-            <p className="font-medium">
-              {rec.compensation.display_crores > 0
-                ? `₹${rec.compensation.display_crores.toFixed(2)}Cr`
-                : `₹${rec.compensation.display_lpa.toFixed(1)}L`}
-            </p>
+        {comp && (
+          <div className="flex items-center gap-3 text-xs">
+            <span className="font-medium">{comp}</span>
+            <Badge
+              variant={FIT_VARIANTS[rec.compensation.fit] ?? "outline"}
+              className="text-[10px]"
+            >
+              {rec.compensation.fit}
+            </Badge>
           </div>
-          <div className="space-y-0.5 text-right">
-            <span className="text-muted-foreground">Fit</span>
-            <div>
-              <Badge
-                variant={FIT_VARIANTS[rec.compensation.fit] ?? "outline"}
-                className="text-[10px]"
-              >
-                {rec.compensation.fit}
-              </Badge>
-            </div>
-          </div>
-        </div>
+        )}
 
-        <div className="grid grid-cols-3 gap-1 text-[10px]">
+        <div className="flex flex-wrap gap-1 text-[10px]">
           <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
-            {rec.experience_fit}
+            {displayFit(rec.experience_fit)}
           </span>
           <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
-            {rec.remote_fit}
+            {displayFit(rec.remote_fit)}
           </span>
           <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
-            {rec.visa_fit}
+            {displayFit(rec.visa_fit)}
           </span>
         </div>
 

@@ -38,13 +38,13 @@ const EMP_TYPE_LABELS: Record<string, string> = {
   temp: "Temporary",
 }
 
-function formatLocation(job: JobOpening): string {
+function formatLocation(job: JobOpening): string | null {
   if (job.location_city || job.location_state || job.location_country) {
     return [job.location_city, job.location_state, job.location_country]
       .filter(Boolean)
       .join(", ")
   }
-  return job.location_raw || "Location not specified"
+  return job.location_raw || null
 }
 
 function formatCompensation(job: JobOpening): string | null {
@@ -66,7 +66,32 @@ function formatCompensation(job: JobOpening): string | null {
 function JobCard({ job }: { job: JobOpening }) {
   const comp = formatCompensation(job)
   const location = formatLocation(job)
-  const hasTechStack = job.tech_stack.length > 0
+
+  const badges: React.ReactNode[] = []
+  const remoteLabel = REMOTE_LABELS[job.remote_policy]
+  if (remoteLabel) {
+    badges.push(
+      <Badge key="remote" variant="outline" className="text-[10px]">
+        {remoteLabel}
+      </Badge>
+    )
+  }
+  const expLabel = EXP_LABELS[job.experience_level]
+  if (expLabel) {
+    badges.push(
+      <Badge key="exp" variant="secondary" className="text-[10px]">
+        {expLabel}
+      </Badge>
+    )
+  }
+  const empLabel = EMP_TYPE_LABELS[job.employment_type]
+  if (empLabel) {
+    badges.push(
+      <Badge key="emp" variant="ghost" className="text-[10px]">
+        {empLabel}
+      </Badge>
+    )
+  }
 
   return (
     <Card size="sm">
@@ -75,24 +100,18 @@ function JobCard({ job }: { job: JobOpening }) {
           {job.company_name}
         </div>
         <CardTitle>{job.title}</CardTitle>
-        <div className="flex flex-wrap gap-1">
-          <Badge variant="outline" className="text-[10px]">
-            {REMOTE_LABELS[job.remote_policy] ?? job.remote_policy}
-          </Badge>
-          <Badge variant="secondary" className="text-[10px]">
-            {EXP_LABELS[job.experience_level] ?? job.experience_level}
-          </Badge>
-          <Badge variant="ghost" className="text-[10px]">
-            {EMP_TYPE_LABELS[job.employment_type] ?? job.employment_type}
-          </Badge>
-        </div>
+        {badges.length > 0 && (
+          <div className="flex flex-wrap gap-1">{badges}</div>
+        )}
       </CardHeader>
       <CardContent className="space-y-1.5">
-        <p className="text-xs text-muted-foreground">{location}</p>
+        {location && (
+          <p className="text-xs text-muted-foreground">{location}</p>
+        )}
         {comp && (
           <p className="text-xs font-medium text-foreground">{comp}</p>
         )}
-        {hasTechStack && (
+        {job.tech_stack.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {job.tech_stack.slice(0, 5).map((tech) => (
               <span

@@ -1,7 +1,6 @@
 "use client"
 
 import type { JobOpening } from "@/types/api"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { JobCard } from "./JobCard"
 
 function JobList({ jobs }: { jobs: JobOpening[] }) {
@@ -15,13 +14,11 @@ function JobList({ jobs }: { jobs: JobOpening[] }) {
           {jobs.length} found
         </span>
       </div>
-      <ScrollArea className="max-h-[32rem] pr-3">
-        <div className="space-y-2">
-          {jobs.map((job) => (
-            <JobCard key={job.job_id} job={job} />
-          ))}
-        </div>
-      </ScrollArea>
+      <div className="space-y-2">
+        {jobs.map((job) => (
+          <JobCard key={job.job_id} job={job} />
+        ))}
+      </div>
     </section>
   )
 }
