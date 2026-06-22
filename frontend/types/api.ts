@@ -49,7 +49,7 @@ export type CompensationSource =
 
 export type Priority = "high" | "medium" | "low"
 
-export type CompensationFit = "good" | "poor" | "unavailable"
+export type CompensationFit = "good" | "poor" | "below" | "unavailable"
 
 export interface ChatRequest {
   query: string
@@ -130,6 +130,8 @@ export interface JobOpening {
   scraped_at?: string
   expires_at?: string | null
   is_active: boolean
+  payout_midpoint?: number | null
+  total_comp_estimate?: number | null
   application_url?: string | null
   job_hash?: string | null
 }
