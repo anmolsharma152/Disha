@@ -55,59 +55,12 @@ class EvaluateResumeOutput(BaseModel):
 # ──────────────────────────────────────────────────────────────
 
 def extract_skills_from_text(text: str, known_skills: List[str]) -> Dict[str, float]:
-    """Extract skill mentions from text with confidence scores."""
-    text_lower = text.lower()
-    found = {}
-    
-    for skill in known_skills:
-        skill_lower = skill.lower()
-        if skill_lower in text_lower:
-            # Simple confidence based on context
-            # Count occurrences
-            count = text_lower.count(skill_lower)
-            # Boost if in a technical context
-            context_boost = 0.1 if any(ctx in text_lower for ctx in [
-                "experience", "project", "built", "developed", "implemented",
-                "designed", "architected", "proficient", "expert", "strong"
-            ]) else 0
-            found[skill] = min(0.9, 0.4 + count * 0.1 + context_boost)
-    
-    return found
-
+    """Stub kept for legacy references."""
+    return {}
 
 def extract_ats_keywords(job_description: str) -> List[str]:
-    """Extract likely ATS keywords from job description."""
-    # Common keyword patterns in job descriptions
-    import re
-    
-    # Extract capitalized phrases (likely proper nouns/tech terms)
-    capitalized = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', job_description)
-    
-    # Extract tech acronyms
-    acronyms = re.findall(r'\b[A-Z]{2,}\b', job_description)
-    
-    # Common tech keywords
-    tech_keywords = [
-        "Python", "Java", "Go", "Rust", "TypeScript", "JavaScript",
-        "React", "Vue", "Angular", "Node.js", "Django", "FastAPI",
-        "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch",
-        "Kubernetes", "Docker", "AWS", "GCP", "Azure", "Terraform",
-        "Kafka", "RabbitMQ", "gRPC", "REST", "GraphQL",
-        "PyTorch", "TensorFlow", "JAX", "Hugging Face", "LangChain",
-        "LangGraph", "LLM", "RAG", "MLOps", "LLMOps", "MLflow",
-        "CI/CD", "GitLab", "GitHub Actions", "Jenkins",
-    ]
-    
-    found = set()
-    text_lower = job_description.lower()
-    for kw in tech_keywords:
-        if kw.lower() in text_lower:
-            found.add(kw)
-    
-    found.update(capitalized[:20])
-    found.update(acronyms[:10])
-    
-    return list(found)
+    """Stub kept for legacy references."""
+    return []
 
 
 # ──────────────────────────────────────────────────────────────
@@ -140,105 +93,58 @@ def evaluate_resume_against_job(
     Returns:
         Dictionary with match score, skill analysis, and recommendations
     """
-    logger.info("Evaluating resume against job description...")
+    logger.info("Evaluating resume against job description using Gemini 2.5 Flash...")
+    
+    from langchain_google_genai import ChatGoogleGenerativeAI
     
     # Combine all job requirements text
     full_job_text = " ".join(filter(None, [
         job_description,
         job_requirements,
+        f"Tech Stack: {', '.join(job_tech_stack or [])}",
+        f"Required: {', '.join(job_skills_required or [])}",
+        f"Preferred: {', '.join(job_skills_preferred or [])}",
     ]))
+
+    prompt = f"""
+    You are an expert technical recruiter and LLM Judge.
+    Evaluate the following candidate's resume against the provided job description and requirements.
     
-    # Collect all required skills
-    all_required = set(job_tech_stack or []) | set(job_skills_required or [])
-    all_preferred = set(job_skills_preferred or [])
-    all_job_skills = all_required | all_preferred
+    Job Description & Requirements:
+    {full_job_text}
     
-    # Extract skills from resume
-    resume_skills = extract_skills_from_text(resume_text, list(all_job_skills))
+    Candidate Resume:
+    {resume_text}
     
-    # Build skill matches
-    skill_matches = []
-    matched_skills = []
-    missing_required = []
-    missing_preferred = []
+    Analyze the match carefully. Identify all matched skills, missing required skills, and missing preferred skills.
+    Assign a confidence score (0.0 to 1.0) for each skill match based on how explicitly it is demonstrated in the resume.
+    Provide actionable recommendations.
+    """
     
-    for skill in all_required:
-        present = skill in resume_skills
-        confidence = resume_skills.get(skill, 0.0)
-        skill_matches.append(SkillMatch(
-            skill=skill,
-            present_in_resume=present,
-            confidence=confidence,
-            evidence=f"Found with confidence {confidence:.0%}" if present else "Not detected in resume",
-        ))
-        if present:
-            matched_skills.append(skill)
-        else:
-            missing_required.append(skill)
-    
-    for skill in all_preferred:
-        present = skill in resume_skills
-        confidence = resume_skills.get(skill, 0.0)
-        skill_matches.append(SkillMatch(
-            skill=skill,
-            present_in_resume=present,
-            confidence=confidence,
-            evidence=f"Found with confidence {confidence:.0%}" if present else "Not detected in resume",
-        ))
-        if present:
-            matched_skills.append(skill)
-        else:
-            missing_preferred.append(skill)
-    
-    # Calculate overall match score
-    required_weight = 0.7
-    preferred_weight = 0.3
-    
-    required_score = len([s for s in all_required if s in resume_skills]) / max(len(all_required), 1)
-    preferred_score = len([s for s in all_preferred if s in resume_skills]) / max(len(all_preferred), 1)
-    
-    overall_match = round((required_score * required_weight + preferred_score * preferred_weight) * 100, 1)
-    
-    # ATS keyword analysis
-    ats_keywords = extract_ats_keywords(full_job_text)
-    resume_lower = resume_text.lower()
-    ats_matched = [kw for kw in ats_keywords if kw.lower() in resume_lower]
-    ats_missing = [kw for kw in ats_keywords if kw.lower() not in resume_lower]
-    
-    # Strengths and gaps
-    strengths = [s for s in matched_skills if resume_skills.get(s, 0) > 0.6]
-    gaps = missing_required[:5] + missing_preferred[:3]
-    
-    # Recommendations
-    recommendations = []
-    if missing_required:
-        recommendations.append(f"Add {', '.join(missing_required[:3])} to resume - these are required for the role")
-    if missing_preferred:
-        recommendations.append(f"Consider highlighting {', '.join(missing_preferred[:3])} if you have experience")
-    if len(ats_missing) > 5:
-        recommendations.append(f"Optimize for ATS: include keywords like {', '.join(ats_missing[:5])}")
-    if overall_match < 50:
-        recommendations.append("Overall match is low - consider if this role aligns with your background")
-    elif overall_match < 75:
-        recommendations.append("Good match - strengthen resume with specific project examples for missing skills")
-    else:
-        recommendations.append("Strong match - tailor cover letter to highlight top matched skills")
-    
-    result = EvaluateResumeOutput(
-        overall_match_score=overall_match,
-        skill_matches=skill_matches,
-        missing_required_skills=missing_required,
-        missing_preferred_skills=missing_preferred,
-        matched_skills=matched_skills,
-        resume_strengths=strengths[:5],
-        resume_gaps=gaps,
-        recommendations=recommendations,
-        ats_keywords_matched=ats_matched[:10],
-        ats_keywords_missing=ats_missing[:10],
-    )
-    
-    logger.info(f"Evaluation complete: {overall_match}% match ({len(matched_skills)}/{len(all_job_skills)} skills)")
-    return result.model_dump()
+    try:
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+        structured_llm = llm.with_structured_output(EvaluateResumeOutput)
+        result = structured_llm.invoke(prompt)
+        
+        logger.info(f"Evaluation complete: {result.overall_match_score}% match")
+        return result.model_dump()
+        
+    except Exception as e:
+        logger.error(f"Failed to evaluate resume: {e}")
+        # Fallback response
+        fallback = EvaluateResumeOutput(
+            overall_match_score=0.0,
+            skill_matches=[],
+            missing_required_skills=[],
+            missing_preferred_skills=[],
+            matched_skills=[],
+            resume_strengths=[],
+            resume_gaps=[],
+            recommendations=[f"Error evaluating resume: {str(e)}"],
+            ats_keywords_matched=[],
+            ats_keywords_missing=[]
+        )
+        return fallback.model_dump()
 
 
 # ──────────────────────────────────────────────────────────────

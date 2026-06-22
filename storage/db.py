@@ -27,7 +27,8 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy import ARRAY, Float
+from sqlalchemy import Float
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -156,7 +157,7 @@ class CompanyMetrics(Base, TimestampMixin, UUIDMixin):
 
     # Embedded representation for vector search (pgvector)
     # 1536 dimensions for OpenAI ada-002, 3072 for text-embedding-3-large
-    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(768), nullable=True)
 
     # Computed fields stored as JSON
     extra_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
@@ -265,7 +266,7 @@ class JobOpening(Base, TimestampMixin, UUIDMixin):
     job_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
     # Embedded representation for vector similarity search
-    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(768), nullable=True)
 
     # Computed fields
     extra_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
@@ -352,7 +353,7 @@ class UserProfile(Base, TimestampMixin, UUIDMixin):
     target_roles: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     min_salary_inr: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     preferences: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(768), nullable=True)
 
 
 class Resume(Base, TimestampMixin, UUIDMixin):
@@ -366,7 +367,7 @@ class Resume(Base, TimestampMixin, UUIDMixin):
     parsed_sections: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     skills_extracted: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     experience_years: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(768), nullable=True)
 
 
 class DocumentChunk(Base, TimestampMixin, UUIDMixin):
@@ -380,7 +381,7 @@ class DocumentChunk(Base, TimestampMixin, UUIDMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(768), nullable=True)
 
     __table_args__ = (
         Index("ix_document_chunks_source", "source_type", "source_id"),
@@ -398,7 +399,7 @@ class SkillNode(Base, TimestampMixin, UUIDMixin):
     category: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # language, framework, concept, tool
     aliases: Mapped[list] = mapped_column(JSON, default=list)  # ["py", "python3"]
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    embedding: Mapped[Optional[List[float]]] = mapped_column(ARRAY(Float), nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(768), nullable=True)
     frequency: Mapped[int] = mapped_column(Integer, default=0)  # how many jobs require this
 
 
@@ -561,30 +562,14 @@ class CompanyMetricsRepository:
         return list(result.scalars().all())
 
     async def vector_search(self, query_embedding: List[float], limit: int = 10) -> List[CompanyMetrics]:
-        """Semantic search using cosine similarity on embedding arrays."""
-        # For PostgreSQL with pgvector, use cosine_distance
-        # For SQLite/array, we'll do Python-side filtering for now
+        """Semantic search using pgvector cosine_distance."""
         result = await self.session.execute(
             select(CompanyMetrics)
             .where(CompanyMetrics.embedding.is_not(None))
-            .limit(limit * 5)  # Get more candidates for Python-side sorting
+            .order_by(CompanyMetrics.embedding.cosine_distance(query_embedding))
+            .limit(limit)
         )
-        candidates = list(result.scalars().all())
-        
-        # Python-side cosine similarity (for SQLite dev)
-        if candidates:
-            import numpy as np
-            query_vec = np.array(query_embedding)
-            scored = []
-            for c in candidates:
-                if c.embedding:
-                    cand_vec = np.array(c.embedding)
-                    # Cosine similarity
-                    sim = np.dot(query_vec, cand_vec) / (np.linalg.norm(query_vec) * np.linalg.norm(cand_vec))
-                    scored.append((sim, c))
-            scored.sort(key=lambda x: -x[0])
-            return [c for _, c in scored[:limit]]
-        return []
+        return list(result.scalars().all())
 
 
 class JobOpeningRepository:
@@ -707,29 +692,17 @@ class JobOpeningRepository:
         return list(result.scalars().all())
 
     async def vector_search(self, query_embedding: List[float], limit: int = 10) -> List[JobOpening]:
-        """Semantic search using cosine similarity on embedding arrays."""
+        """Semantic search using pgvector cosine_distance."""
         result = await self.session.execute(
             select(JobOpening)
             .where(
                 JobOpening.embedding.is_not(None),
                 JobOpening.is_active == True,
             )
-            .limit(limit * 5)
+            .order_by(JobOpening.embedding.cosine_distance(query_embedding))
+            .limit(limit)
         )
-        candidates = list(result.scalars().all())
-        
-        if candidates:
-            import numpy as np
-            query_vec = np.array(query_embedding)
-            scored = []
-            for c in candidates:
-                if c.embedding:
-                    cand_vec = np.array(c.embedding)
-                    sim = np.dot(query_vec, cand_vec) / (np.linalg.norm(query_vec) * np.linalg.norm(cand_vec))
-                    scored.append((sim, c))
-            scored.sort(key=lambda x: -x[0])
-            return [c for _, c in scored[:limit]]
-        return []
+        return list(result.scalars().all())
 
 
 class DocumentChunkRepository:
@@ -768,29 +741,17 @@ class DocumentChunkRepository:
         source_types: Optional[List[str]] = None,
         limit: int = 10,
     ) -> List[DocumentChunk]:
-        """Semantic search across document chunks using cosine similarity."""
+        """Semantic search using pgvector cosine_distance."""
         query = (
             select(DocumentChunk)
             .where(DocumentChunk.embedding.is_not(None))
-            .limit(limit * 5)
+            .order_by(DocumentChunk.embedding.cosine_distance(query_embedding))
+            .limit(limit)
         )
         if source_types:
             query = query.where(DocumentChunk.source_type.in_(source_types))
         result = await self.session.execute(query)
-        candidates = list(result.scalars().all())
-        
-        if candidates:
-            import numpy as np
-            query_vec = np.array(query_embedding)
-            scored = []
-            for c in candidates:
-                if c.embedding:
-                    cand_vec = np.array(c.embedding)
-                    sim = np.dot(query_vec, cand_vec) / (np.linalg.norm(query_vec) * np.linalg.norm(cand_vec))
-                    scored.append((sim, c))
-            scored.sort(key=lambda x: -x[0])
-            return [c for _, c in scored[:limit]]
-        return []
+        return list(result.scalars().all())
 
 
 # ══════════════════════════════════════════════════════════════════

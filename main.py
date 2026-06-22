@@ -114,7 +114,7 @@ def node_synthesize(state: AgentState) -> AgentState:
         m = metrics[-1]
         sections.append(f"## Company Analysis: {m.get('company_name')} ({m.get('ticker')})")
         market_cap = m.get('market_cap', 0)
-        if market_cap >= 10000000:
+        if market_cap is not None and market_cap >= 10000000:
             sections.append(f"- **Market Cap**: ₹{market_cap / 10000000:.2f} Cr")
         else:
             sections.append(f"- **Market Cap**: ₹{market_cap / 100000:.1f} L")

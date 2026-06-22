@@ -20,10 +20,14 @@ logger = logging.getLogger("alpha_nexus.tools")
 # Input/Output Schemas
 # ──────────────────────────────────────────────────────────────
 
+
 class FetchRSSInput(BaseModel):
     """Input schema for fetch_financial_news_rss tool."""
+
     feed_url: HttpUrl = Field(..., description="RSS/Atom feed URL to fetch")
-    max_items: int = Field(5, ge=1, le=50, description="Maximum number of items to return")
+    max_items: int = Field(
+        5, ge=1, le=50, description="Maximum number of items to return"
+    )
     timeout: int = Field(10, ge=1, le=60, description="Request timeout in seconds")
 
     @field_validator("feed_url", mode="before")
@@ -38,6 +42,7 @@ class FetchRSSInput(BaseModel):
 
 class RSSArticle(BaseModel):
     """Single article from RSS feed."""
+
     title: str
     link: str
     published: Optional[str] = None
@@ -47,6 +52,7 @@ class RSSArticle(BaseModel):
 
 class FetchRSSOutput(BaseModel):
     """Output schema for fetch_financial_news_rss tool."""
+
     articles: List[RSSArticle]
     feed_title: Optional[str] = None
     feed_url: str
@@ -57,6 +63,7 @@ class FetchRSSOutput(BaseModel):
 # ──────────────────────────────────────────────────────────────
 # LangChain Tool
 # ──────────────────────────────────────────────────────────────
+
 
 @tool("fetch_financial_news_rss", args_schema=FetchRSSInput, return_direct=False)
 def fetch_financial_news_rss(
@@ -94,7 +101,9 @@ def fetch_financial_news_rss(
             logger.warning("No entries found in feed")
             return {
                 "articles": [],
-                "feed_title": feed_info.get("title") if isinstance(feed_info, dict) else None,
+                "feed_title": feed_info.get("title")
+                if isinstance(feed_info, dict)
+                else None,
                 "feed_url": str(feed_url),
                 "fetched_at": datetime.datetime.utcnow().isoformat() + "Z",
                 "total_available": 0,
@@ -108,13 +117,30 @@ def fetch_financial_news_rss(
         articles = []
         for entry in feed_entries[:max_items]:
             # entry is a dict-like object
-            title = entry.get("title", "No title") if hasattr(entry, "get") else str(getattr(entry, "title", "No title"))
-            link = entry.get("link", "") if hasattr(entry, "get") else str(getattr(entry, "link", ""))
-            published = entry.get("published") or entry.get("updated") if hasattr(entry, "get") else (
-                getattr(entry, "published", None) or getattr(entry, "updated", None)
+            title = (
+                entry.get("title", "No title")
+                if hasattr(entry, "get")
+                else str(getattr(entry, "title", "No title"))
             )
-            summary = entry.get("summary") or entry.get("description") if hasattr(entry, "get") else (
-                getattr(entry, "summary", None) or getattr(entry, "description", None)
+            link = (
+                entry.get("link", "")
+                if hasattr(entry, "get")
+                else str(getattr(entry, "link", ""))
+            )
+            published = (
+                entry.get("published") or entry.get("updated")
+                if hasattr(entry, "get")
+                else (
+                    getattr(entry, "published", None) or getattr(entry, "updated", None)
+                )
+            )
+            summary = (
+                entry.get("summary") or entry.get("description")
+                if hasattr(entry, "get")
+                else (
+                    getattr(entry, "summary", None)
+                    or getattr(entry, "description", None)
+                )
             )
 
             article = RSSArticle(
@@ -134,7 +160,9 @@ def fetch_financial_news_rss(
             total_available=len(feed_entries),
         )
 
-        logger.info(f"Successfully fetched {len(articles)} articles from {source_domain}")
+        logger.info(
+            f"Successfully fetched {len(articles)} articles from {source_domain}"
+        )
         return result.model_dump()
 
     except Exception as e:
@@ -153,8 +181,10 @@ def fetch_financial_news_rss(
 # Additional Scraper Tools (Placeholders for Phase 1)
 # ──────────────────────────────────────────────────────────────
 
+
 class ScrapedPage(BaseModel):
     """Result from web scraping."""
+
     url: str
     html: str
     markdown: str
@@ -163,6 +193,7 @@ class ScrapedPage(BaseModel):
 
 class PlaywrightScrapeInput(BaseModel):
     """Input for Playwright-based scraping."""
+
     url: HttpUrl
     wait_for_selector: Optional[str] = None
     wait_for_timeout: int = Field(5000, ge=0, le=60000)
@@ -172,13 +203,17 @@ class PlaywrightScrapeInput(BaseModel):
 
 class BeautifulSoupScrapeInput(BaseModel):
     """Input for BeautifulSoup-based scraping."""
+
     url: HttpUrl
-    extract_selectors: Optional[Dict[str, str]] = Field(None, description="CSS selectors for targeted extraction")
+    extract_selectors: Optional[Dict[str, str]] = Field(
+        None, description="CSS selectors for targeted extraction"
+    )
     parse_tables: bool = False
 
 
 class PlaywrightScrapeOutput(BaseModel):
     """Output for Playwright scraping."""
+
     url: str
     html: str
     markdown: str
@@ -187,7 +222,9 @@ class PlaywrightScrapeOutput(BaseModel):
     scraped_at: str
 
 
-@tool("fetch_webpage_playwright", args_schema=PlaywrightScrapeInput, return_direct=False)
+@tool(
+    "fetch_webpage_playwright", args_schema=PlaywrightScrapeInput, return_direct=False
+)
 def fetch_webpage_playwright(
     url: HttpUrl,
     wait_for_selector: Optional[str] = None,
@@ -197,8 +234,6 @@ def fetch_webpage_playwright(
 ) -> Dict[str, Any]:
     """
     Scrape a webpage using Playwright for JS-heavy content.
-
-    STUB IMPLEMENTATION - Returns dummy data for testing.
 
     Args:
         url: Webpage URL to scrape
@@ -211,23 +246,65 @@ def fetch_webpage_playwright(
         Dictionary with html, markdown, title, and metadata
     """
     import datetime
+    from playwright.sync_api import sync_playwright
+    import markdownify
+    from bs4 import BeautifulSoup
 
     # Convert HttpUrl to string (fixes Pydantic validation bug)
     url_str = str(url)
-    logger.info(f"[STUB] Playwright scraping: {url_str}")
+    logger.info(f"Playwright scraping live: {url_str}")
 
-    # Stub response for testing
+    html_content = ""
+    page_title = ""
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent=user_agent)
+            page.goto(url_str, wait_until="domcontentloaded", timeout=30000)
+
+            if wait_for_selector:
+                try:
+                    page.wait_for_selector(wait_for_selector, timeout=wait_for_timeout)
+                except Exception as e:
+                    logger.warning(
+                        f"Timeout waiting for selector {wait_for_selector}: {e}"
+                    )
+            else:
+                page.wait_for_timeout(wait_for_timeout)
+
+            html_content = page.content()
+            page_title = page.title()
+            browser.close()
+
+    except Exception as e:
+        logger.error(f"Playwright execution error: {e}")
+        return {
+            "url": url_str,
+            "html": "",
+            "markdown": "",
+            "title": "",
+            "metadata": {"error": str(e)},
+            "scraped_at": datetime.datetime.now().isoformat() + "Z",
+        }
+
+    markdown_text = ""
+    if extract_markdown and html_content:
+        soup = BeautifulSoup(html_content, "html.parser")
+        # Strip out noisy tags
+        for element in soup(["script", "style", "nav", "footer", "header", "svg"]):
+            element.decompose()
+        clean_html = str(soup)
+        markdown_text = markdownify.markdownify(clean_html, heading_style="ATX").strip()
+
     return PlaywrightScrapeOutput(
         url=url_str,
-        html=f"<html><body><h1>Stub Page for {url_str}</h1><p>This is a stubbed Playwright response.</p></body></html>",
-        markdown=f"# Stub Page for {url_str}\n\nThis is a stubbed Playwright response.",
-        title=f"Stub Page - {url_str}",
+        html=html_content,
+        markdown=markdown_text,
+        title=page_title,
         metadata={
-            "scraper": "playwright-stub",
+            "scraper": "playwright",
             "wait_for_selector": wait_for_selector,
-            "wait_for_timeout": wait_for_timeout,
-            "extract_markdown": extract_markdown,
-            "user_agent": user_agent,
         },
         scraped_at=datetime.datetime.now().isoformat() + "Z",
     ).model_dump()
@@ -280,10 +357,12 @@ if __name__ == "__main__":
     print()
 
     # Call the tool directly (not via LangChain runtime)
-    result = fetch_financial_news_rss.invoke({
-        "feed_url": BBC_NEWS_RSS,
-        "max_items": 5,
-    })
+    result = fetch_financial_news_rss.invoke(
+        {
+            "feed_url": BBC_NEWS_RSS,
+            "max_items": 5,
+        }
+    )
 
     # Pretty print
     print(f"Feed Title: {result.get('feed_title')}")

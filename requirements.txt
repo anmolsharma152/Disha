@@ -12,6 +12,12 @@ numpy
 feedparser
 pyyaml
 pydantic
+PyPDF2
+beautifulsoup4
+markdownify
+
+# Scraping
+playwright
 
 # LLM & Orchestration
 langchain-core
