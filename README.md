@@ -35,11 +35,13 @@ It responds with structured recommendations — scored, ranked, with compensatio
 | Learning companion | ✅ Working | Gap analysis, ArXiv roadmap, phase-based curriculum |
 | FastAPI + SSE gateway | ✅ Working | `/api/chat` sync + `/api/chat/stream` SSE |
 | RSS feed ingestion | ✅ Working | Live feeds via `feedparser` |
-| Live job scraping | 🔧 Phase 2 | Playwright scaffold ready; Naukri/LinkedIn targeting next |
-| pgvector search | 🔧 Phase 2 | Schema and models complete; semantic search pending |
+| Live Playwright scraping | ✅ Working | Real browser rendering via `sync_playwright` |
+| LLM job extraction | ✅ Working | Gemini `with_structured_output` from scraped pages |
+| Gemini learning companion | ✅ Working | Dynamic gap analysis and ArXiv roadmap |
+| LLM resume evaluation | ✅ Working | Gemini `with_structured_output` tool |
+| pgvector schema | ✅ Working | `Vector(768)` columns + native `cosine_distance` queries |
+| Greenhouse API integration | 🔧 Phase 2 | Structured JSON ingestion next priority |
 | Next.js frontend | 🔧 Phase 3 | Architecture documented; implementation pending |
-
-**Demo mode:** Run with fixture data (curated Indian AI/ML roles at Swiggy, Razorpay, CRED) to see the full pipeline end-to-end without scraping dependencies.
 
 ---
 
@@ -58,10 +60,10 @@ It responds with structured recommendations — scored, ranked, with compensatio
 │  AGENT       │      │  ANALYST       │    │  STRATEGY       │
 │              │      │                │    │                 │
 │ • Playwright │      │ • ARR Growth   │    │ • Skill Match   │
-│ • BS4        │      │ • Burn Multiple│    │ • LPA Bench.    │
-│ • RSS Feeds  │      │ • Runway       │    │ • India Filter  │
-│ • Naukri     │      │ • ESOP Score   │    │ • Priority Rank │
-│ • LinkedIn   │      │ • Risk Flags   │    │                 │
+│ • RSS Feeds  │      │ • Burn Multiple│    │ • LPA Bench.    │
+│ • Gemini Ext │      │ • Runway       │    │ • India Filter  │
+│ • (Greenhouse│      │ • ESOP Score   │    │ • Priority Rank │
+│    API P2)   │      │ • Risk Flags   │    │                 │
 └──────┬───────┘      └────────┬───────┘    └────────┬────────┘
        │                       │                     │
        │                       │                     ▼
@@ -95,7 +97,7 @@ Agents are routed **sequentially** by the Supervisor based on query intent — n
 | Component | Technology | Responsibility |
 |-----------|-----------|---------------|
 | **Supervisor** | LangGraph + Pydantic | Cyclic orchestration, intent routing, max-6 iteration guard |
-| **Scraper Agent** | Playwright, BeautifulSoup, `feedparser` | JS rendering, static parsing, RSS, India platforms |
+| **Scraper Agent** | Playwright, `feedparser`, Gemini | Live Playwright scraping, RSS feeds, LLM job extraction |
 | **Financial Analyst** | Custom scoring engine | ARR growth, burn multiple, ESOP transparency, runway — India private-market metrics |
 | **Career Strategy** | Skill-gap + comp matching | Stack extraction, INR/LPA benchmarking, city/remote filter, priority ranking |
 | **Learning Companion** | Gap analysis + Gemini AI | Generates dynamic ArXiv roadmap and phases using LLM |
@@ -174,8 +176,8 @@ Disha/
 ├── storage/
 │   └── db.py                # Async SQLAlchemy 2.0 + pgvector scaffold
 ├── tools/
-│   ├── scraper_tools.py     # RSS (live) + Playwright (stub, Phase 2)
-│   └── career_tools.py      # Resume evaluation tool (stub, Phase 2)
+│   ├── scraper_tools.py     # RSS + Playwright (live)
+│   └── career_tools.py      # Resume evaluation (Gemini, live)
 └── frontend/
     └── README.md            # Next.js 14 architecture spec (Phase 3)
 ```
@@ -211,14 +213,18 @@ GEMINI_API_KEY="your_api_key_here"
 - [x] Financial scoring engine — burn multiple, ESOP, runway (India private-market)
 - [x] Career scoring engine — skill overlap, comp fit, experience fit
 - [x] Guardrail node — domain/tech exclusions pre-synthesis
-- [x] Demo mode with curated fixture data
+- [x] Demo pipeline — real Playwright scraping + Gemini extraction + deterministic scoring
 
 ### Phase 2 — Live Data & LLM Integration 🔧
 
-- [ ] Live Playwright scraping — Naukri, LinkedIn India, company portals
+- [x] Live Playwright scraping (real browser rendering, not stub)
+- [x] LLM job extraction (Gemini `with_structured_output`)
 - [x] Dynamic Generative AI Learning Companion (Gemini 2.5 Flash integrated)
-- [ ] LLM-based resume evaluation (replace keyword stub)
-- [ ] pgvector semantic search activation
+- [x] LLM-based resume evaluation (Gemini `with_structured_output`)
+- [x] pgvector schema + native `cosine_distance` queries
+- [ ] Greenhouse API integration (structured JSON ingestion)
+- [ ] Lever API integration
+- [ ] Error propagation (activate `error_recovery` node)
 - [ ] Cover letter generator
 
 ### Phase 3 — Frontend & Deployment 🔧
