@@ -60,6 +60,8 @@ class ChatResponse(BaseModel):
     total_tokens: int
     total_cost_usd: float
     completed_at: str
+    job_openings: list[dict] = Field(default_factory=list, description="Structured job opening data")
+    career_recommendations: list[dict] = Field(default_factory=list, description="Structured career match data")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -152,6 +154,8 @@ async def chat_endpoint(request: ChatRequest):
             total_tokens=result.get("total_tokens", 0),
             total_cost_usd=result.get("total_cost_usd", 0.0),
             completed_at=datetime.utcnow().isoformat(),
+            job_openings=result.get("job_openings", []),
+            career_recommendations=result.get("career_recommendations", []),
         )
 
         logger.info(
@@ -199,6 +203,14 @@ async def chat_stream_endpoint(request: ChatRequest):
                     "iteration": state.get("iteration"),
                     "session_id": session_id,
                 }
+
+                # Include structured job data when available
+                if state.get("job_openings"):
+                    event_data["job_openings"] = state["job_openings"]
+
+                # Include structured career recommendations when available
+                if state.get("career_recommendations"):
+                    event_data["career_recommendations"] = state["career_recommendations"]
 
                 # Include final answer if available
                 if state.get("final_answer"):
