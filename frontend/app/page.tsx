@@ -4,6 +4,7 @@ import { useChat } from "@/hooks"
 import { ChatInput } from "@/components/chat/ChatInput"
 import { AgentStatus } from "@/components/chat/AgentStatus"
 import { FinalAnswer } from "@/components/chat/FinalAnswer"
+import { JobList } from "@/components/jobs"
 
 export default function Home() {
   const {
@@ -12,6 +13,7 @@ export default function Home() {
     error,
     currentAgent,
     finalAnswer,
+    jobOpenings,
   } = useChat()
 
   return (
@@ -36,6 +38,8 @@ export default function Home() {
           loading={loading}
           error={error}
         />
+
+        <JobList jobs={jobOpenings} />
 
         <FinalAnswer answer={finalAnswer} />
       </main>

@@ -1,1 +1,2 @@
-// Job-related components will be added in a future commit.
+export { JobCard } from "./JobCard"
+export { JobList } from "./JobList"
