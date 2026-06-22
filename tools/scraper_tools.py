@@ -310,11 +310,124 @@ def fetch_webpage_playwright(
     ).model_dump()
 
 
-# Placeholder tool signatures (to be implemented)
-# @tool("scrape_with_beautifulsoup", args_schema=BeautifulSoupScrapeInput)
-# def scrape_with_beautifulsoup(...):
-#     """Fast static HTML scraping with BeautifulSoup."""
-#     pass
+# ──────────────────────────────────────────────────────────────
+# Greenhouse API Tool
+# ──────────────────────────────────────────────────────────────
+
+
+class RawGreenhouseJob(BaseModel):
+    """Raw job object from the Greenhouse boards API."""
+    id: int
+    title: str
+    location: Optional[Dict[str, Any]] = None
+    departments: List[Dict[str, Any]] = Field(default_factory=list)
+    offices: List[Dict[str, Any]] = Field(default_factory=list)
+    content: str = ""
+    absolute_url: Optional[str] = None
+    internal_post: bool = False
+    metadata: List[Dict[str, Any]] = Field(default_factory=list)
+    updated_at: Optional[str] = None
+
+
+class SearchGreenhouseInput(BaseModel):
+    """Input schema for search_greenhouse_jobs tool."""
+
+    board: str = Field(
+        ...,
+        description="Greenhouse board name (e.g., 'openai', 'razorpay')",
+    )
+    keywords: Optional[str] = Field(
+        None, description="Optional keyword filter applied client-side"
+    )
+    max_results: int = Field(20, ge=1, le=100, description="Maximum jobs to return")
+
+
+class SearchGreenhouseOutput(BaseModel):
+    """Output schema for search_greenhouse_jobs tool."""
+
+    jobs: List[RawGreenhouseJob]
+    board: str
+    total: int
+    error: Optional[str] = None
+    fetched_at: str
+
+
+@tool(
+    "search_greenhouse_jobs",
+    args_schema=SearchGreenhouseInput,
+    return_direct=False,
+)
+def search_greenhouse_jobs(
+    board: str,
+    keywords: Optional[str] = None,
+    max_results: int = 20,
+) -> Dict[str, Any]:
+    """
+    Fetch live job listings from a Greenhouse board via the public JSON API.
+
+    Calls GET https://boards-api.greenhouse.io/v1/boards/{board}/jobs
+    No authentication required.
+
+    Args:
+        board: Greenhouse board name (e.g., 'openai', 'razorpay')
+        keywords: Optional keyword filter applied client-side to titles
+        max_results: Maximum number of jobs to return
+
+    Returns:
+        Dictionary with jobs list, board name, total count, and fetch timestamp
+    """
+    import datetime
+    import json
+    import urllib.request
+    import urllib.error
+
+    url = f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true"
+    logger.info(f"[Greenhouse] Fetching jobs from board: {board}")
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Disha/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as response:
+            data = json.loads(response.read().decode())
+
+        raw_jobs = data.get("jobs", [])
+        logger.info(f"[Greenhouse] Got {len(raw_jobs)} jobs from {board}")
+
+        parsed: List[RawGreenhouseJob] = []
+        for j in raw_jobs:
+            title = j.get("title", "")
+            if keywords and keywords.lower() not in title.lower():
+                continue
+            parsed.append(RawGreenhouseJob(
+                id=j.get("id"),
+                title=title,
+                location=j.get("location"),
+                departments=j.get("departments", []),
+                offices=j.get("offices", []),
+                content=j.get("content", ""),
+                absolute_url=j.get("absolute_url"),
+                internal_post=j.get("internal_post", False),
+                metadata=j.get("metadata", []),
+                updated_at=j.get("updated_at"),
+            ))
+
+        result = SearchGreenhouseOutput(
+            jobs=parsed[:max_results],
+            board=board,
+            total=len(parsed),
+            fetched_at=datetime.datetime.utcnow().isoformat() + "Z",
+        )
+        logger.info(f"[Greenhouse] Returning {len(parsed)} jobs (filtered from {len(raw_jobs)})")
+        return result.model_dump()
+
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as e:
+        logger.error(f"[Greenhouse] API request failed for {board}: {e}")
+        return SearchGreenhouseOutput(
+            jobs=[],
+            board=board,
+            total=0,
+            error=str(e),
+            fetched_at=datetime.datetime.utcnow().isoformat() + "Z",
+        ).model_dump()
 
 
 # ──────────────────────────────────────────────────────────────
@@ -324,7 +437,7 @@ def fetch_webpage_playwright(
 SCRAPER_TOOLS = [
     fetch_financial_news_rss,
     fetch_webpage_playwright,
-    # scrape_with_beautifulsoup,
+    search_greenhouse_jobs,
 ]
 
 TOOL_MAP = {t.name: t for t in SCRAPER_TOOLS}
