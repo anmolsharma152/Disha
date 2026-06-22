@@ -1,1 +1,2 @@
-// Custom React hooks will be added in a future commit.
+export { useChat } from "./useChat"
+export type { UseChatReturn } from "./useChat"
