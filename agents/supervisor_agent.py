@@ -43,22 +43,23 @@ def guardrail_filter_jobs(jobs: list[Dict[str, Any]]) -> tuple[list[Dict[str, An
     dropped = 0
     
     for job in jobs:
-        text = f"{job.get('title','')} {job.get('description_raw','')} {' '.join(job.get('tech_stack',[]))} {' '.join(job.get('skills_required',[]))} {' '.join(job.get('skills_preferred',[]))}".lower()
+        full_text = f"{job.get('title','')} {job.get('description_raw','')} {' '.join(job.get('tech_stack',[]))} {' '.join(job.get('skills_required',[]))} {' '.join(job.get('skills_preferred',[]))}".lower()
+        title = (job.get("title") or "").lower()
         
-        # Domain exclusion
-        if any(excl in text for excl in EXCLUDED_DOMAINS):
+        # Domain exclusion (match against full text — domain is inherently about the company/role)
+        if any(excl in full_text for excl in EXCLUDED_DOMAINS):
             logger.info(f"[Guardrail] Dropped job (domain): {job.get('title')} @ {job.get('company_name')}")
             dropped += 1
             continue
         
-        # Tech exclusion
-        if any(excl in text for excl in EXCLUDED_TECH):
+        # Tech exclusion (match against title only — descriptions frequently mention excluded tech in passing)
+        if any(excl in title for excl in EXCLUDED_TECH):
             logger.info(f"[Guardrail] Dropped job (tech): {job.get('title')} @ {job.get('company_name')}")
             dropped += 1
             continue
         
         # Visa sponsorship exclusion (for India roles, visa not needed)
-        if any(excl in text for excl in EXCLUDED_VISA_METRICS):
+        if any(excl in full_text for excl in EXCLUDED_VISA_METRICS):
             logger.info(f"[Guardrail] Dropped job (visa): {job.get('title')} @ {job.get('company_name')}")
             dropped += 1
             continue

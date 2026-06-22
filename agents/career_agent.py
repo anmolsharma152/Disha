@@ -57,11 +57,11 @@ def is_location_match(job_location: str, remote_policy: str) -> bool:
 
 
 def is_excluded(job: Dict[str, Any]) -> bool:
-    """Check if job should be excluded based on hard filters."""
-    text = f"{job.get('title', '')} {job.get('description_raw', '')} {' '.join(job.get('tech_stack', []))}".lower()
+    """Check if job should be excluded based on hard filters (title only)."""
+    title = (job.get("title") or "").lower()
     
     for excluded in USER_PROFILE["excluded_keywords"]:
-        if excluded in text:
+        if excluded in title:
             return True
     
     return False

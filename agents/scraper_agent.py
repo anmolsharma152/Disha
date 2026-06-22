@@ -6,6 +6,7 @@ Real-world data acquisition using RSS feeds and Playwright for dynamic content.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Any, Dict
@@ -442,51 +443,56 @@ def node_scraper(state: AgentState) -> AgentState:
             logger.warning(f"[Scraper] Lever board '{board}' exception: {e}")
 
     # 4. Extract Jobs from Playwright scraped pages using Gemini 2.5 Flash
-    from langchain_google_genai import ChatGoogleGenerativeAI
-    
-    class JobExtraction(BaseModel):
-        jobs: list[JobOpening]
+    # Only initialize Gemini when scraped pages exist AND API key is available
+    scraped_pages = state.get("raw_scraped_pages", [])
+    pages_with_content = [p for p in scraped_pages if len(p.get("markdown", "")) > 50]
+    has_gemini_key = bool(os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"))
 
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
-    structured_llm = llm.with_structured_output(JobExtraction)
+    if pages_with_content and has_gemini_key:
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            
+            class JobExtraction(BaseModel):
+                jobs: list[JobOpening]
 
-    existing_metrics = state.get("company_metrics", [])
+            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+            structured_llm = llm.with_structured_output(JobExtraction)
+
+            for page in pages_with_content:
+                md_text = page.get("markdown", "")
+                url = page.get("url", "")
+                
+                try:
+                    logger.info(f"[Scraper] Extracting jobs via LLM from {url}...")
+                    prompt = f"""
+                    Extract all job openings from the following career page markdown.
+                    The source URL is {url}.
+                    If compensation or specific skills are missing, leave them empty or null.
+                    Only extract actual job listings. Limit to the top 5 jobs found.
+                    
+                    Markdown Content:
+                    {md_text[:25000]}
+                    """
+                    
+                    result = structured_llm.invoke(prompt)
+                    
+                    if result and result.jobs:
+                        for job in result.jobs:
+                            job.source_url = url
+                            new_job_dicts.append(job.model_dump(mode="json"))
+                            logger.info(f"  -> Extracted: {job.title} at {job.company_name}")
+                            
+                except Exception as e:
+                    logger.error(f"[Scraper] LLM Extraction failed for {url}: {e}")
+        except Exception as e:
+            logger.warning(f"[Scraper] Gemini initialization failed (non-fatal): {e}")
+    else:
+        if not pages_with_content:
+            logger.info("[Scraper] No Playwright scraped pages with content — skipping Gemini extraction")
+        if not has_gemini_key:
+            logger.info("[Scraper] No Gemini API key found — skipping LLM extraction")
+
     existing_jobs = state.get("job_openings", [])
-
-    existing_tickers = {m.get("ticker") for m in existing_metrics if m.get("ticker")}
-    if "RZPY" not in existing_tickers: # mock metrics logic kept for downstream agents
-        pass
-
-    for page in state.get("raw_scraped_pages", []):
-        md_text = page.get("markdown", "")
-        url = page.get("url", "")
-        
-        if len(md_text) > 50:
-            try:
-                logger.info(f"[Scraper] Extracting jobs via LLM from {url}...")
-                prompt = f"""
-                Extract all job openings from the following career page markdown.
-                The source URL is {url}.
-                If compensation or specific skills are missing, leave them empty or null.
-                Only extract actual job listings. Limit to the top 5 jobs found.
-                
-                Markdown Content:
-                {md_text[:25000]}
-                """
-                
-                result = structured_llm.invoke(prompt)
-                
-                if result and result.jobs:
-                    for job in result.jobs:
-                        job.source_url = url
-                        new_job_dicts.append(job.model_dump(mode="json"))
-                        logger.info(f"  -> Extracted: {job.title} at {job.company_name}")
-                        
-            except Exception as e:
-                logger.error(f"[Scraper] LLM Extraction failed for {url}: {e}")
-
-    existing_job_ids = {j.get("job_id") for j in existing_jobs if j.get("job_id")}
-    # Deduplicate based on generated ID (or job_hash if it existed)
 
     # Apply early-stopping guardrails
     filtered_jobs = filter_jobs(new_job_dicts)
