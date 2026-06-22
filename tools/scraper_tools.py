@@ -348,6 +348,19 @@ class SearchGreenhouseInput(BaseModel):
     max_results: int = Field(20, ge=1, le=100, description="Maximum jobs to return")
 
 
+class SearchLeverInput(BaseModel):
+    """Input schema for search_lever_jobs tool."""
+
+    board: str = Field(
+        ...,
+        description="Lever board slug from jobs.lever.co/{board}",
+    )
+    keywords: Optional[str] = Field(
+        None, description="Optional keyword filter applied client-side"
+    )
+    max_results: int = Field(20, ge=1, le=100, description="Maximum jobs to return")
+
+
 class SearchGreenhouseOutput(BaseModel):
     """Output schema for search_greenhouse_jobs tool."""
 
@@ -437,6 +450,165 @@ def search_greenhouse_jobs(
 
 
 # ──────────────────────────────────────────────────────────────
+# Lever Tool
+# ──────────────────────────────────────────────────────────────
+
+
+class RawLeverJob(BaseModel):
+    """Raw job object parsed from a Lever career page."""
+    title: str = ""
+    description_text: str = ""
+    location: str = ""
+    department: str = ""
+    workplace_type: str = ""
+    commitment: str = ""
+    absolute_url: Optional[str] = None
+    lever_id: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class SearchLeverOutput(BaseModel):
+    """Output schema for search_lever_jobs."""
+    jobs: List[RawLeverJob] = Field(default_factory=list)
+    board: str = ""
+    total: int = 0
+    error: Optional[str] = None
+    fetched_at: str = ""
+
+
+@tool(args_schema=SearchLeverInput)
+def search_lever_jobs(
+    board: str,
+    keywords: Optional[str] = None,
+    max_results: int = 20,
+) -> Dict[str, Any]:
+    """
+    Fetch live job listings from a Lever board.
+
+    Lever does not provide a public JSON API. This tool uses Playwright
+    (headless browser) to render the page, then parses the HTML for
+    job postings.
+
+    If Playwright is unavailable, falls back to requests + BS4 which
+    works for some server-rendered Lever pages.
+
+    Args:
+        board: Lever board name (company slug from jobs.lever.co/{board})
+        keywords: Optional keyword filter applied client-side to titles
+        max_results: Maximum number of jobs to return
+
+    Returns:
+        Dictionary with jobs list, board name, total count, and fetch timestamp
+    """
+    import datetime
+
+    url = f"https://jobs.lever.co/{board}"
+    logger.info(f"[Lever] Fetching jobs from board: {board}")
+
+    html: Optional[str] = None
+
+    # Try Playwright first (handles JS-rendered pages)
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, wait_until="networkidle", timeout=20000)
+            html = page.content()
+            browser.close()
+        logger.info(f"[Lever] Playwright rendered {board} successfully")
+    except Exception as e:
+        logger.warning(f"[Lever] Playwright failed for {board}, trying requests: {e}")
+
+    # Fallback to plain requests
+    if not html:
+        try:
+            import urllib.request
+            req = urllib.request.Request(url, headers={"User-Agent": "Disha/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as response:
+                html = response.read().decode()
+        except Exception as e:
+            logger.warning(f"[Lever] requests also failed for {board}: {e}")
+            return SearchLeverOutput(
+                jobs=[], board=board, total=0, error=str(e),
+                fetched_at=datetime.datetime.utcnow().isoformat() + "Z",
+            ).model_dump()
+
+    # Parse jobs from HTML
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    parsed: List[RawLeverJob] = []
+
+    # Lever renders job cards with class "posting"
+    cards = soup.select(".posting")
+    if not cards:
+        # Alternative: some templates use data-qa attributes
+        cards = soup.select("[data-qa*=\"posting\"]")
+    if not cards:
+        # Fallback: look for any link matching /{board}/
+        seen_links: set = set()
+        for a_tag in soup.select(f"a[href*=\"/{board}/\"]"):
+            href = a_tag.get("href", "")
+            title = a_tag.get_text(strip=True)
+            if title and href not in seen_links and len(title) > 10:
+                seen_links.add(href)
+                parsed.append(RawLeverJob(
+                    title=title,
+                    absolute_url=href,
+                ))
+
+    for card in cards:
+        title_el = card.select_one(".posting-title a, .posting-title h5 a")
+        title = title_el.get_text(strip=True) if title_el else ""
+        link = title_el.get("href", "") if title_el else ""
+        if keywords and keywords.lower() not in title.lower():
+            continue
+
+        # Extract department and location from posting-categories
+        cats = card.select(".posting-category, .sort-by-location, .posting-categories span")
+        department = ""
+        location = ""
+        for c in cats:
+            text = c.get_text(strip=True)
+            if not text:
+                continue
+            if any(kw in text.lower() for kw in ["remote", "san francisco", "new york", "city"]):
+                location = text
+            elif any(kw in c.get("class", []) for kw in ["sort-by-location", "posting-category"]):
+                if "sort-by-location" in (c.get("class", [])):
+                    location = text
+                else:
+                    department = text
+
+        if not location:
+            # Check sort-by-location class
+            loc_el = card.select_one(".sort-by-location")
+            if loc_el:
+                location = loc_el.get_text(strip=True)
+
+        if not department:
+            dept_el = card.select_one(".posting-category")
+            if dept_el:
+                department = dept_el.get_text(strip=True)
+
+        parsed.append(RawLeverJob(
+            title=title,
+            location=location,
+            department=department,
+            absolute_url=link,
+        ))
+
+    result = SearchLeverOutput(
+        jobs=parsed[:max_results],
+        board=board,
+        total=len(parsed),
+        fetched_at=datetime.datetime.utcnow().isoformat() + "Z",
+    )
+    logger.info(f"[Lever] Returning {len(parsed)} jobs (from {len(cards)} cards) for {board}")
+    return result.model_dump()
+
+
+# ──────────────────────────────────────────────────────────────
 # Tool Registry
 # ──────────────────────────────────────────────────────────────
 
@@ -444,6 +616,7 @@ SCRAPER_TOOLS = [
     fetch_financial_news_rss,
     fetch_webpage_playwright,
     search_greenhouse_jobs,
+    search_lever_jobs,
 ]
 
 TOOL_MAP = {t.name: t for t in SCRAPER_TOOLS}

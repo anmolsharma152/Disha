@@ -242,6 +242,62 @@ def normalize_greenhouse_job(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ──────────────────────────────────────────────────────────────
+# Lever Normalizer
+# ──────────────────────────────────────────────────────────────
+
+
+LEVER_DOMAIN = "jobs.lever.co"
+
+
+def normalize_lever_job(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Transform a RawLeverJob dict into a JobOpening-compatible dict.
+
+    Lever listing pages include title, location, department, and URL but
+    not the full description. Description enrichment requires fetching
+    each job's detail page.
+    """
+    title = raw.get("title", "").strip()
+    location_raw = raw.get("location", "") or ""
+    department = raw.get("department", "") or ""
+    absolute_url = raw.get("absolute_url", "") or ""
+
+    location_components = parse_location(location_raw)
+    experience = infer_experience_level(title)
+    remote = infer_remote_policy(location_raw, title)
+    country_code = _resolve_country(location_raw, location_components.get("country"))
+
+    job_dict: Dict[str, Any] = {
+        "company_name": "",
+        "title": title,
+        "location_raw": location_raw,
+        "location_city": location_components.get("city"),
+        "location_state": location_components.get("state"),
+        "location_country": country_code,
+        "remote_policy": remote.value,
+        "experience_level": experience.value,
+        "department": department or None,
+        "tech_stack": [],
+        "skills_required": [],
+        "skills_preferred": [],
+        "payout_min": None,
+        "payout_max": None,
+        "currency": INDIA_CURRENCY if country_code == INDIA_COUNTRY else "USD",
+        "compensation_source": "estimated",
+        "compensation_confidence": 0.2,
+        "description_raw": title,
+        "source_url": absolute_url,
+        "source_domain": LEVER_DOMAIN,
+        "scraper_source": ScraperSource.ATS_LEVER.value,
+        "posted_date": None,
+        "is_active": True,
+        "application_url": absolute_url or None,
+    }
+
+    return job_dict
+
+
+# ──────────────────────────────────────────────────────────────
 # Validation Helper
 # ──────────────────────────────────────────────────────────────
 

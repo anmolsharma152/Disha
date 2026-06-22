@@ -26,8 +26,13 @@ from tools.scraper_tools import (
     fetch_financial_news_rss,
     fetch_webpage_playwright,
     search_greenhouse_jobs,
+    search_lever_jobs,
 )
-from tools.job_normalizer import normalize_greenhouse_job, validate_job_dict
+from tools.job_normalizer import (
+    normalize_greenhouse_job,
+    normalize_lever_job,
+    validate_job_dict,
+)
 
 logger = logging.getLogger("alpha_nexus.agents.scraper")
 
@@ -409,7 +414,34 @@ def node_scraper(state: AgentState) -> AgentState:
         except Exception as e:
             logger.warning(f"[Scraper] Greenhouse board '{board}' exception: {e}")
 
-    # 3. Extract Jobs from Playwright scraped pages using Gemini 2.5 Flash
+    # 3. Fetch jobs from Lever boards (Playwright + BS4, no Gemini cost)
+    LEVER_BOARDS: Dict[str, str] = {
+        "Groww": "groww",
+        "Dunzo": "dunzo",
+        "Unacademy": "unacademy",
+        "UpGrad": "upgrad",
+    }
+    logger.info(f"[Scraper] Querying {len(LEVER_BOARDS)} Lever boards...")
+    for company_name, board in LEVER_BOARDS.items():
+        try:
+            lv_result = search_lever_jobs.invoke({
+                "board": board,
+                "max_results": 10,
+            })
+            if lv_result.get("error"):
+                logger.warning(f"[Scraper] Lever board '{board}' failed: {lv_result['error']}")
+                continue
+            for raw_job in lv_result.get("jobs", []):
+                norm = normalize_lever_job(raw_job)
+                norm["company_name"] = company_name
+                validated = validate_job_dict(norm)
+                if validated:
+                    new_job_dicts.append(validated)
+                    logger.info(f"  -> [Lever] {validated['title']} @ {company_name}")
+        except Exception as e:
+            logger.warning(f"[Scraper] Lever board '{board}' exception: {e}")
+
+    # 4. Extract Jobs from Playwright scraped pages using Gemini 2.5 Flash
     from langchain_google_genai import ChatGoogleGenerativeAI
     
     class JobExtraction(BaseModel):
@@ -461,8 +493,9 @@ def node_scraper(state: AgentState) -> AgentState:
     state["job_openings"] = existing_jobs + filtered_jobs
 
     gh_count = sum(1 for j in new_job_dicts if j.get("scraper_source") == "ats_greenhouse")
-    pw_count = sum(1 for j in new_job_dicts if j.get("scraper_source") != "ats_greenhouse")
+    lv_count = sum(1 for j in new_job_dicts if j.get("scraper_source") == "ats_lever")
+    pw_count = len(new_job_dicts) - gh_count - lv_count
     logger.info(
-        f"[Scraper] Added {len(filtered_jobs)} jobs ({gh_count} Greenhouse, {pw_count} Gemini/Playwright) after guardrails"
+        f"[Scraper] Added {len(filtered_jobs)} jobs ({gh_count} Greenhouse, {lv_count} Lever, {pw_count} Gemini/Playwright) after guardrails"
     )
     return state
