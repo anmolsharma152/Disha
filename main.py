@@ -113,18 +113,22 @@ def node_synthesize(state: AgentState) -> AgentState:
     if metrics:
         m = metrics[-1]
         sections.append(f"## Company Analysis: {m.get('company_name')} ({m.get('ticker')})")
-        market_cap = m.get('market_cap', 0)
+        market_cap = m.get('market_cap')
         if market_cap is not None and market_cap >= 10000000:
             sections.append(f"- **Market Cap**: ₹{market_cap / 10000000:.2f} Cr")
-        else:
+        elif market_cap is not None:
             sections.append(f"- **Market Cap**: ₹{market_cap / 100000:.1f} L")
-        revenue_ttm = m.get('revenue_ttm', 0)
-        if revenue_ttm >= 10000000:
-            sections.append(f"- **Revenue (TTM)**: ₹{revenue_ttm / 10000000:.2f} Cr (YoY: {m.get('revenue_growth_yoy', 0):.1f}%)")
         else:
+            sections.append("- **Market Cap**: N/A")
+        revenue_ttm = m.get('revenue_ttm')
+        if revenue_ttm is not None and revenue_ttm >= 10000000:
+            sections.append(f"- **Revenue (TTM)**: ₹{revenue_ttm / 10000000:.2f} Cr (YoY: {m.get('revenue_growth_yoy', 0):.1f}%)")
+        elif revenue_ttm is not None:
             sections.append(f"- **Revenue (TTM)**: ₹{revenue_ttm / 100000:.1f} L (YoY: {m.get('revenue_growth_yoy', 0):.1f}%)")
-        sections.append(f"- **Headcount**: {m.get('headcount_current', 0)} (6m growth: {m.get('headcount_growth_6m', 0):.1f}%)")
-        sections.append(f"- **Margins**: Gross {m.get('gross_margin', 0):.1f}% | Net {m.get('net_margin', 0):.1f}%")
+        else:
+            sections.append("- **Revenue (TTM)**: N/A")
+        sections.append(f"- **Headcount**: {m.get('headcount_current') or 0} (6m growth: {(m.get('headcount_growth_6m') or 0):.1f}%)")
+        sections.append(f"- **Margins**: Gross {(m.get('gross_margin') or 0):.1f}% | Net {(m.get('net_margin') or 0):.1f}%")
         citations.append({"source": m.get("source_url"), "type": "financial_metrics"})
 
     # Financial Analysis

@@ -25,7 +25,9 @@ from schemas import (
 from tools.scraper_tools import (
     fetch_financial_news_rss,
     fetch_webpage_playwright,
+    search_greenhouse_jobs,
 )
+from tools.job_normalizer import normalize_greenhouse_job, validate_job_dict
 
 logger = logging.getLogger("alpha_nexus.agents.scraper")
 
@@ -56,6 +58,17 @@ INDIAN_TARGET_CITIES = [
     "mumbai",
     "kolkata",
 ]
+
+# Greenhouse boards to query (company_name → board_name mapping)
+# TODO: validate which companies use Greenhouse vs Lever vs other ATS
+GREENHOUSE_BOARDS: Dict[str, str] = {
+    "Razorpay": "razorpay",
+    "Swiggy": "swiggy",
+    "CRED": "cred",
+    "Zomato": "zomato",
+    "Freshworks": "freshworks",
+    "Postman": "postman",
+}
 
 INDIAN_COMPANY_PORTALS = [
     "tcs.com/careers",
@@ -128,8 +141,8 @@ def filter_jobs(jobs: list[Dict]) -> list[Dict]:
     """Prune unwanted roles before they hit the Graph to save tokens."""
     filtered = []
     for job in jobs:
-        text = f"{job.get('title', '')} {job.get('description_raw', '')} {' '.join(job.get('tech_stack', []))}".lower()
-        if not any(kw in text for kw in EXCLUDED_KEYWORDS):
+        title = (job.get("title") or "").lower()
+        if not any(kw in title for kw in EXCLUDED_KEYWORDS):
             filtered.append(job)
     return filtered
 
@@ -360,7 +373,29 @@ def node_scraper(state: AgentState) -> AgentState:
     except Exception as e:
         logger.warning(f"[Scraper] Playwright fetch failed: {e}")
 
-    # 2. Extract Jobs from Playwright scraped pages using Gemini 2.5 Flash
+    # 2. Fetch jobs from Greenhouse API (structured data, preferred path)
+    new_job_dicts: List[Dict[str, Any]] = []
+    logger.info(f"[Scraper] Querying {len(GREENHOUSE_BOARDS)} Greenhouse boards...")
+    for company_name, board in GREENHOUSE_BOARDS.items():
+        try:
+            gh_result = search_greenhouse_jobs.invoke({
+                "board": board,
+                "max_results": 20,
+            })
+            if gh_result.get("error"):
+                logger.warning(f"[Scraper] Greenhouse board '{board}' failed: {gh_result['error']}")
+                continue
+            for raw_job in gh_result.get("jobs", []):
+                norm = normalize_greenhouse_job(raw_job)
+                norm["company_name"] = company_name
+                validated = validate_job_dict(norm)
+                if validated:
+                    new_job_dicts.append(validated)
+                    logger.info(f"  -> [Greenhouse] {validated['title']} @ {company_name}")
+        except Exception as e:
+            logger.warning(f"[Scraper] Greenhouse board '{board}' exception: {e}")
+
+    # 3. Extract Jobs from Playwright scraped pages using Gemini 2.5 Flash
     from langchain_google_genai import ChatGoogleGenerativeAI
     
     class JobExtraction(BaseModel):
@@ -376,8 +411,6 @@ def node_scraper(state: AgentState) -> AgentState:
     if "RZPY" not in existing_tickers: # mock metrics logic kept for downstream agents
         pass
 
-    new_job_dicts = []
-    
     for page in state.get("raw_scraped_pages", []):
         md_text = page.get("markdown", "")
         url = page.get("url", "")
@@ -413,7 +446,9 @@ def node_scraper(state: AgentState) -> AgentState:
     filtered_jobs = filter_jobs(new_job_dicts)
     state["job_openings"] = existing_jobs + filtered_jobs
 
+    gh_count = sum(1 for j in new_job_dicts if j.get("scraper_source") == "ats_greenhouse")
+    pw_count = sum(1 for j in new_job_dicts if j.get("scraper_source") != "ats_greenhouse")
     logger.info(
-        f"[Scraper] Added 1 company, {len(filtered_jobs)} India-relevant Agentic/LLMOps jobs (after guardrails)"
+        f"[Scraper] Added {len(filtered_jobs)} jobs ({gh_count} Greenhouse, {pw_count} Gemini/Playwright) after guardrails"
     )
     return state

@@ -325,8 +325,14 @@ class RawGreenhouseJob(BaseModel):
     content: str = ""
     absolute_url: Optional[str] = None
     internal_post: bool = False
-    metadata: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     updated_at: Optional[str] = None
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def coerce_none_metadata(cls, v: Any) -> Any:
+        """Coerce None metadata to empty list."""
+        return v if v is not None else []
 
 
 class SearchGreenhouseInput(BaseModel):
