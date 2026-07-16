@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Financial Analyst Agent (India-First)
+Disha - Financial Analyst Agent (India-First)
 Private-market valuation for Indian startups (Swiggy, Razorpay, Cred, etc.).
 Metrics: ARR, Revenue Growth, Burn Multiple, ESOP %, Runway — NOT P/E, Market Cap.
 """
@@ -12,7 +12,7 @@ from typing import Any, Dict
 
 from schemas import AgentState, CompanyMetrics, ScraperSource
 
-logger = logging.getLogger("alpha_nexus.agents.financial")
+logger = logging.getLogger("disha.agents.financial")
 
 # India-first: private company benchmarks (2024-25)
 INDIAN_BENCHMARKS = {

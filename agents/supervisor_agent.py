@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Supervisor Agent
+Disha - Supervisor Agent
 Orchestrates the multi-agent workflow with cyclic state management.
 """
 
@@ -12,7 +12,7 @@ from typing import Any, Dict, Literal
 
 from schemas import AgentState
 
-logger = logging.getLogger("alpha_nexus.agents.supervisor")
+logger = logging.getLogger("disha.agents.supervisor")
 
 # ══════════════════════════════════════════════════════════════════
 # Guardrail: Hard exclusions (HFT, Rust, C++, Visa-sponsorship metrics)

@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Core Data Schemas
+Disha - Core Data Schemas
 Pydantic v2 models for validated data exchange across the pipeline.
 """
 

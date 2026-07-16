@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Learning Companion Agent
+Disha - Learning Companion Agent
 Hyper-personalized learning roadmap for Anmol Sharma (IIT Mandi, Data Science & AI).
 Analyzes skill gaps from job specs and recommends advanced papers, courses, paradigms.
 """
@@ -16,7 +16,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
 from schemas import AgentState
 
-logger = logging.getLogger("alpha_nexus.agents.learning")
+logger = logging.getLogger("disha.agents.learning")
 
 
 # ══════════════════════════════════════════════════════════════════

@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Career Strategy Agent
+Disha - Career Strategy Agent
 Hyper-personalized job matching for Anmol Sharma (IIT Mandi, Data Science & AI).
 """
 
@@ -19,7 +19,7 @@ from schemas import (
     ExperienceLevel,
 )
 
-logger = logging.getLogger("alpha_nexus.agents.career")
+logger = logging.getLogger("disha.agents.career")
 
 
 # ══════════════════════════════════════════════════════════════════

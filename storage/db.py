@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Database Layer (Async PostgreSQL + pgvector)
+Disha - Database Layer (Async PostgreSQL + pgvector)
 SQLAlchemy 2.0 async models with pgvector support for embeddings.
 """
 

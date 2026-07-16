@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Scraper Agent
+Disha - Scraper Agent
 Real-world data acquisition using RSS feeds and Playwright for dynamic content.
 """
 
@@ -35,7 +35,7 @@ from tools.job_normalizer import (
     validate_job_dict,
 )
 
-logger = logging.getLogger("alpha_nexus.agents.scraper")
+logger = logging.getLogger("disha.agents.scraper")
 
 
 # ══════════════════════════════════════════════════════════════════

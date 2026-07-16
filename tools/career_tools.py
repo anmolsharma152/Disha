@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Career Tools
+Disha - Career Tools
 LangChain-compatible tools for career intelligence layer.
 """
 
@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger("alpha_nexus.tools.career")
+logger = logging.getLogger("disha.tools.career")
 
 
 # ──────────────────────────────────────────────────────────────

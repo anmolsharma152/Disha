@@ -1,10 +1,7 @@
 """
-Project Alpha-Nexus - LangGraph Multi-Agent Orchestrator
+Disha - LangGraph Multi-Agent Orchestrator
 Main entry point compiling the state graph with Supervisor pattern.
 Uses modular agents from agents/ package.
-
-# NOTE: Specialist agents currently run on fixture data and deterministic scoring; 
-# real LLM integration and dynamic scraping is planned for Phase 2.
 """
 
 from __future__ import annotations
@@ -41,7 +38,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
 )
-logger = logging.getLogger("alpha_nexus")
+logger = logging.getLogger("disha")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -335,7 +332,7 @@ def build_graph() -> StateGraph:
 # Main Execution
 # ──────────────────────────────────────────────────────────────
 
-def run_alpha_nexus(
+def run_disha(
     user_query: str,
     user_id: str = "default",
     session_id: str | None = None,
@@ -343,7 +340,7 @@ def run_alpha_nexus(
     thread_id: str | None = None,
 ) -> Dict[str, Any]:
     """
-    Executes the full Alpha-Nexus pipeline for a user query.
+    Executes the full Disha pipeline for a user query.
 
     Args:
         user_query: Natural language query from user
@@ -355,7 +352,7 @@ def run_alpha_nexus(
     Returns:
         Final state dict with final_answer, citations, and all intermediate data
     """
-    logger.info(f"=== Alpha-Nexus Pipeline Started ===")
+    logger.info(f"=== Disha Pipeline Started ===")
     logger.info(f"Query: {user_query}")
 
     # Build graph
@@ -383,7 +380,7 @@ def run_alpha_nexus(
     return final_state
 
 
-def stream_alpha_nexus(
+def stream_disha(
     user_query: str,
     user_id: str = "default",
     session_id: str | None = None,
@@ -391,7 +388,7 @@ def stream_alpha_nexus(
     thread_id: str | None = None,
 ):
     """
-    Streams the Alpha-Nexus pipeline execution for real-time monitoring.
+    Streams the Disha pipeline execution for real-time monitoring.
     Yields state updates after each node execution.
     """
     app = build_graph()
@@ -428,7 +425,7 @@ if __name__ == "__main__":
 
     if args.stream:
         print(f"Streaming execution for: {args.query}\n{'='*60}")
-        for i, state in enumerate(stream_alpha_nexus(
+        for i, state in enumerate(stream_disha(
             user_query=args.query,
             user_id=args.user_id,
             session_id=args.session_id,
@@ -440,7 +437,7 @@ if __name__ == "__main__":
             if state.get("final_answer"):
                 print(f"  FINAL ANSWER: {state['final_answer'][:200]}...")
     else:
-        result = run_alpha_nexus(
+        result = run_disha(
             user_query=args.query,
             user_id=args.user_id,
             session_id=args.session_id,
