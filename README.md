@@ -1,47 +1,53 @@
 # Disha 🧭
 
-> **Automated Market Intelligence & Career Optimization Platform for India's AI/ML job landscape.**
+> **Market intelligence and career optimization for India's AI/ML job landscape.**
 
-A production-grade, multi-agent system built on **LangGraph** that scrapes corporate career pages and financial data, performs investment analysis, and matches opportunities against a hyper-personalized user profile — orchestrated through a Supervisor pattern with cyclic state management.
+Disha is a multi-agent system that finds roles, scores them against a personal profile, analyzes companies, and can propose learning roadmaps — not generic chat, but structured matches with compensation fit, skill overlap, and explicit reasoning.
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/built%20with-LangGraph-orange)](https://github.com/langchain-ai/langgraph)
-[![PostgreSQL](https://img.shields.io/badge/database-postgres%2Bpgvector-green)](https://github.com/pgvector/pgvector)
 [![FastAPI](https://img.shields.io/badge/api-FastAPI-teal)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/frontend-Next.js%2014-black)](https://nextjs.org/)
+[![PostgreSQL](https://img.shields.io/badge/database-postgres%2Bpgvector-green)](https://github.com/pgvector/pgvector)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## What It Does
+## What it does
 
-Disha answers questions like:
+Ask things like:
 
 - *"Find Agentic AI and backend roles in Bangalore above 20 LPA"*
-- *"Should I apply to Razorpay or Swiggy given my current skill set?"*
+- *"Should I apply to Razorpay or Swiggy given my skill set?"*
 - *"What LLMOps skills am I missing for Staff ML Engineer roles?"*
 - *"Suggest an ArXiv-backed learning roadmap for my skill gaps"*
 
-It responds with structured recommendations — scored, ranked, with compensation fit, skill overlap, and explicit reasoning — not generic LLM output.
+Typical flow:
+
+```
+Query → Supervisor (keyword routing)
+      → Scraper (Greenhouse / Lever / Playwright + optional Gemini)
+      → Career · Financial · Learning specialists
+      → Guardrail → Synthesize → answer + structured jobs/recommendations
+```
 
 ---
 
-## Current Status
+## Current status
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Supervisor orchestration | ✅ Working | Cyclic routing, iteration guard, guardrails |
-| Career scoring engine | ✅ Working | Skill match %, LPA benchmarking, experience fit |
-| Financial analyst | ✅ Working | Burn multiple, ESOP, runway scoring (India-first) |
-| Learning companion | ✅ Working | Gap analysis, ArXiv roadmap, phase-based curriculum |
-| FastAPI + SSE gateway | ✅ Working | `/api/chat` sync + `/api/chat/stream` SSE |
-| RSS feed ingestion | ✅ Working | Live feeds via `feedparser` |
-| Live Playwright scraping | ✅ Working | Real browser rendering via `sync_playwright` |
-| LLM job extraction | ✅ Working | Gemini `with_structured_output` from scraped pages |
-| Gemini learning companion | ✅ Working | Dynamic gap analysis and ArXiv roadmap |
-| LLM resume evaluation | ✅ Working | Gemini `with_structured_output` tool |
-| pgvector schema | ✅ Working | `Vector(768)` columns + native `cosine_distance` queries |
-| Greenhouse API integration | 🔧 Phase 2 | Structured JSON ingestion next priority |
-| Next.js frontend | 🔧 Phase 3 | Architecture documented; implementation pending |
+| Supervisor orchestration | ✅ Working | Cyclic routing, max-6 iteration guard, guardrails |
+| Career scoring | ✅ Working | Skill match %, LPA fit, location, experience |
+| Financial analyst | ✅ Working | India-first private-market style scores |
+| Learning companion | ✅ Working | Gemini gap analysis + phased roadmap |
+| FastAPI + SSE | ✅ Working | `/api/chat`, `/api/chat/stream` with jobs + recs |
+| Greenhouse + Lever tools | ✅ Working | Structured boards + normalizers |
+| Playwright + Gemini extract | ✅ Working | Secondary path for HTML career pages |
+| Next.js chat UI | ✅ Working | SSE chat, job cards, recommendations, dark mode |
+| pgvector schema | 🔧 Scaffold | Models + repos exist; not on the live chat path |
+| Error recovery node | 🔧 Partial | Graph node present; rarely activated by agents |
+| Resume evaluation tool | 🔧 Partial | Gemini tool exists; not wired into the graph |
 
 ---
 
@@ -50,65 +56,50 @@ It responds with structured recommendations — scored, ranked, with compensatio
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          SUPERVISOR AGENT                               │
-│   Intent Analysis • Dynamic Delegation • Aggregation • Iteration Guard │
+│   Intent analysis · Deterministic routing · Iteration guard             │
 └──────────────────────────────┬──────────────────────────────────────────┘
                                │
          ┌─────────────────────┼──────────────────────┐
          ▼                     ▼                      ▼
 ┌──────────────┐      ┌────────────────┐    ┌─────────────────┐
 │  SCRAPER     │      │  FINANCIAL     │    │  CAREER         │
-│  AGENT       │      │  ANALYST       │    │  STRATEGY       │
-│              │      │                │    │                 │
-│ • Playwright │      │ • ARR Growth   │    │ • Skill Match   │
-│ • RSS Feeds  │      │ • Burn Multiple│    │ • LPA Bench.    │
-│ • Gemini Ext │      │ • Runway       │    │ • India Filter  │
-│ • (Greenhouse│      │ • ESOP Score   │    │ • Priority Rank │
-│    API P2)   │      │ • Risk Flags   │    │                 │
+│              │      │  ANALYST       │    │  STRATEGY       │
+│ • Greenhouse │      │ • Growth       │    │ • Skill match   │
+│ • Lever      │      │ • Burn / runway│    │ • LPA fit       │
+│ • Playwright │      │ • ESOP / risk  │    │ • India filter  │
+│ • Gemini ext │      │                │    │ • Ranked recs   │
 └──────┬───────┘      └────────┬───────┘    └────────┬────────┘
-       │                       │                     │
        │                       │                     ▼
        │                       │            ┌─────────────────┐
        │                       │            │  LEARNING       │
        │                       │            │  COMPANION      │
-       │                       │            │                 │
-       │                       │            │ • Gap Analysis  │
-       │                       │            │ • ArXiv Papers  │
-       │                       │            │ • Phase Roadmap │
-       │                       │            │ • LLMOps/MLOps  │
+       │                       │            │ • Gaps / ArXiv  │
+       │                       │            │ • Phase roadmap │
        └───────────────────────┼────────────┴────────┬────────┘
                                ▼                     ▼
                     ┌──────────────────────────────────────┐
-                    │           GUARDRAIL NODE             │
-                    │  Domain Filter • Visa Strip • Dedup  │
-                    └─────────────────┬────────────────────┘
-                                      ▼
-                    ┌──────────────────────────────────────┐
-                    │          SYNTHESIZE NODE             │
-                    │  Final Answer • Citations • Score    │
-                    └─────────────────────────────────────┘
+                    │  GUARDRAIL → SYNTHESIZE              │
+                    │  Domain filter · Final answer        │
+                    └──────────────────────────────────────┘
 ```
 
-Agents are routed **sequentially** by the Supervisor based on query intent — not in parallel. A career query routes: `scraper → career_strategy → [learning_companion] → guardrail → synthesize`. A financial query routes: `scraper → financial_analyst → guardrail → synthesize`.
+Routing is **deterministic** (no LLM in the control plane). Specialists run **sequentially** and return to the supervisor.
+
+| Layer | Stack |
+|-------|--------|
+| Orchestration | LangGraph, Pydantic v2 |
+| LLM | Google Gemini (extraction, learning companion, resume tool) |
+| Ingestion | Greenhouse/Lever APIs, Playwright, RSS |
+| API | FastAPI, Server-Sent Events |
+| UI | Next.js 14, TypeScript, Tailwind, Shadcn/UI |
+| Storage | SQLAlchemy 2.0 async + pgvector (scaffold) |
+| Config | `user_profile.yaml`, `.env` |
 
 ---
 
-## Core Components
+## Quick start
 
-| Component | Technology | Responsibility |
-|-----------|-----------|---------------|
-| **Supervisor** | LangGraph + Pydantic | Cyclic orchestration, intent routing, max-6 iteration guard |
-| **Scraper Agent** | Playwright, `feedparser`, Gemini | Live Playwright scraping, RSS feeds, LLM job extraction |
-| **Financial Analyst** | Custom scoring engine | ARR growth, burn multiple, ESOP transparency, runway — India private-market metrics |
-| **Career Strategy** | Skill-gap + comp matching | Stack extraction, INR/LPA benchmarking, city/remote filter, priority ranking |
-| **Learning Companion** | Gap analysis + Gemini AI | Generates dynamic ArXiv roadmap and phases using LLM |
-| **Guardrail Node** | Rule-based filter | Strips excluded domains (HFT, firmware), deduplicates before synthesis |
-| **Knowledge Base** | PostgreSQL + pgvector (async) | Vector search over jobs/resumes/papers, LangGraph checkpoints |
-| **API Gateway** | FastAPI + SSE | `/api/chat` sync, `/api/chat/stream` SSE, `/health`, `/api/v1/status` |
-| **Frontend** | Next.js 14 + Tailwind + Shadcn/UI | Chat UI, job dashboard, learning roadmap (Phase 3) |
-
----
-
-## Quick Start
+### Backend
 
 ```bash
 git clone https://github.com/anmolsharma152/Disha.git
@@ -116,23 +107,22 @@ cd Disha
 
 python -m venv venv
 source venv/bin/activate
-
 pip install -r requirements.txt
 
-# Run a query directly
+# Optional: Postgres + pgvector
+docker compose up -d
+
+# .env
+echo 'GEMINI_API_KEY="your_api_key_here"' >> .env
+
+# CLI
 python main.py "Find Agentic AI and backend roles in Bangalore"
-
-# Stream output
 python main.py "Should I invest in Indian AI companies?" --stream
-
-# JSON output
 python main.py "Analyze Razorpay financial health" --json
 
-# Start the API server
+# API
 uvicorn api.server:app --reload --host 0.0.0.0 --port 8000
 ```
-
-Then hit the API:
 
 ```bash
 curl -X POST http://localhost:8000/api/chat \
@@ -140,11 +130,22 @@ curl -X POST http://localhost:8000/api/chat \
   -d '{"query": "Find Agentic AI roles in Bangalore above 20 LPA"}'
 ```
 
-API docs available at `http://localhost:8000/docs`.
+Interactive docs: `http://localhost:8000/docs`
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+# optional: export NEXT_PUBLIC_API_URL=http://localhost:8000
+npm run dev
+```
+
+Open `http://localhost:3000`. The UI streams agent status, job cards, career recommendations, and the final markdown answer from `/api/chat/stream`.
 
 ---
 
-## Example Output
+## Example output
 
 ```
 ### 1. Senior AI/ML Engineer — Agentic Workflows @ Razorpay — 67.4/100 (MEDIUM)
@@ -158,89 +159,76 @@ API docs available at `http://localhost:8000/docs`.
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
 Disha/
-├── main.py                  # LangGraph compilation, CLI entry point
-├── schemas.py               # Pydantic v2 models: CompanyMetrics, JobOpening, AgentState
-├── README.md
+├── main.py                  # LangGraph compile, CLI, synthesize / error_recovery
+├── schemas.py               # JobOpening, CompanyMetrics, AgentState, …
+├── user_profile.yaml        # Skills, cities, salary floor, exclusions
 ├── agents/
-│   ├── scraper_agent.py     # India-focused scraping pipeline
-│   ├── financial_agent.py   # Private-market valuation (burn multiple, ESOP, runway)
-│   ├── career_agent.py      # Skill-gap scoring, LPA benchmarking
-│   ├── supervisor_agent.py  # Cyclic routing + guardrail pre-synthesis
-│   └── learning_agent.py    # ArXiv gap analysis, phase roadmap
-├── api/
-│   └── server.py            # FastAPI + SSE endpoints
-├── storage/
-│   └── db.py                # Async SQLAlchemy 2.0 + pgvector scaffold
+│   ├── supervisor_agent.py  # Routing + pre-synthesis guardrail
+│   ├── scraper_agent.py     # ATS + Playwright + optional Gemini extraction
+│   ├── career_agent.py      # Deterministic match scoring
+│   ├── financial_agent.py   # Company / investment style scores
+│   └── learning_agent.py    # Gemini learning roadmap
 ├── tools/
-│   ├── scraper_tools.py     # RSS + Playwright (live)
-│   └── career_tools.py      # Resume evaluation (Gemini, live)
-└── frontend/
-    └── README.md            # Next.js 14 architecture spec (Phase 3)
+│   ├── scraper_tools.py     # RSS, Playwright, Greenhouse, Lever
+│   ├── job_normalizer.py    # ATS payloads → JobOpening dicts
+│   └── career_tools.py      # Resume evaluation (Gemini)
+├── api/
+│   └── server.py            # FastAPI + SSE
+├── storage/
+│   └── db.py                # Async SQLAlchemy + pgvector models/repos
+├── frontend/                # Next.js chat UI (SSE, jobs, recommendations)
+├── docs/                    # Architecture, ADRs, roadmaps
+└── docker-compose.yml       # pgvector Postgres
 ```
 
 ---
 
 ## Configuration
 
-Disha's profile matching is fully configurable via `user_profile.yaml`. The default profile targets India-based AI/ML engineering roles:
+Edit `user_profile.yaml` for personal targeting. Defaults are India AI/ML–oriented:
 
-| Parameter | Default |
-|-----------|---------|
-| Target roles | AI/ML Engineer, LLM Engineer, LLMOps Engineer, ML Platform Engineer |
-| Target cities | Bangalore, Delhi NCR, Pune, Hyderabad, Remote India |
+| Parameter | Default focus |
+|-----------|----------------|
+| Target roles | AI/ML, LLM, LLMOps, ML platform |
+| Cities | Bangalore, Delhi NCR, Pune, Hyderabad, remote India |
 | Salary floor | ₹20 LPA base |
-| Excluded domains | HFT, embedded, firmware, kernel |
+| Exclusions | HFT, embedded, firmware, kernel, … |
 
-Also, add your Google Gemini API key to a `.env` file in the root directory:
+Environment:
+
 ```bash
 GEMINI_API_KEY="your_api_key_here"
+# optional frontend
+NEXT_PUBLIC_API_URL="http://localhost:8000"
 ```
 
 ---
 
 ## Roadmap
 
-### Phase 1 — Modular Framework & Async Postgres Scaffold ✅
+### Done
 
-- [x] Supervisor-Specialist multi-agent architecture (LangGraph)
-- [x] FastAPI gateway with SSE streaming
-- [x] Async PostgreSQL + pgvector schema (SQLAlchemy 2.0)
-- [x] India job localization — INR/LPA benchmarking, city filters
-- [x] Financial scoring engine — burn multiple, ESOP, runway (India private-market)
-- [x] Career scoring engine — skill overlap, comp fit, experience fit
-- [x] Guardrail node — domain/tech exclusions pre-synthesis
-- [x] Demo pipeline — real Playwright scraping + Gemini extraction + deterministic scoring
+- [x] Supervisor–specialist LangGraph graph with guardrails
+- [x] FastAPI gateway + SSE (including structured jobs/recommendations)
+- [x] Career + financial scoring engines (India-aware)
+- [x] Greenhouse + Lever ingestion + job normalizers
+- [x] Playwright scraping + optional Gemini job extraction
+- [x] Gemini learning companion
+- [x] Next.js chat UI (streaming status, job list, recommendation cards)
+- [x] Async Postgres + pgvector schema scaffold
 
-### Phase 2 — Live Data & LLM Integration 🔧
+### Next
 
-- [x] Live Playwright scraping (real browser rendering, not stub)
-- [x] LLM job extraction (Gemini `with_structured_output`)
-- [x] Dynamic Generative AI Learning Companion (Gemini 2.5 Flash integrated)
-- [x] LLM-based resume evaluation (Gemini `with_structured_output`)
-- [x] pgvector schema + native `cosine_distance` queries
-- [ ] Greenhouse API integration (structured JSON ingestion)
-- [ ] Lever API integration
-- [ ] Error propagation (activate `error_recovery` node)
-- [ ] Cover letter generator
-
-### Phase 3 — Frontend & Deployment 🔧
-
-- [ ] Next.js 14 chat UI with SSE streaming
-- [ ] Job dashboard — filterable cards, skill gap bars, one-click apply
-- [ ] Learning roadmap UI — phase cards, paper viewer, progress tracking
-- [ ] Deployment — Vercel + Railway + Neon Postgres
-
-### Phase 4 — Production Integrations 🔧
-
-- [ ] MCP servers — LinkedIn, Glassdoor, Yahoo Finance, Wellfound
-- [ ] PDF parsing — earnings transcripts, resume analysis
-- [ ] Automated email digests — daily market scans, weekly match refresh
-- [ ] LangSmith tracing, cost/token observability
-- [ ] Circuit breakers — per-domain failure tracking, fallback chains
+- [ ] Query-aware board / company selection (less hardcoded scrape targets)
+- [ ] Wire `error_log` → `error_recovery` for real fallbacks
+- [ ] Persist jobs / use pgvector on the live path when needed
+- [ ] Richer job dashboard + learning roadmap UI
+- [ ] Deployment (e.g. Vercel + API host + managed Postgres)
+- [ ] Observability (tracing, cost), circuit breakers, cover letters
 
 ---
 
