@@ -1,25 +1,21 @@
 """
-Project Alpha-Nexus - Scraper Agent
-Real-world data acquisition using RSS feeds and Playwright for dynamic content.
+Disha - Scraper Agent
+Query-aware job acquisition via Greenhouse/Lever, optional Playwright + Gemini.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import time
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, List
 
-from langchain_core.tools import tool
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel
 
 from schemas import (
     AgentState,
     CompanyMetrics,
     JobOpening,
-    RemotePolicy,
-    ExperienceLevel,
     ScraperSource,
 )
 
@@ -34,12 +30,18 @@ from tools.job_normalizer import (
     normalize_lever_job,
     validate_job_dict,
 )
+from tools.board_selection import (
+    ScrapePlan,
+    job_matches_india_preference,
+    job_matches_keywords,
+    select_scrape_plan,
+)
 
-logger = logging.getLogger("alpha_nexus.agents.scraper")
+logger = logging.getLogger("disha.agents.scraper")
 
 
 # ══════════════════════════════════════════════════════════════════
-# India-Specific Configuration
+# India / domain helpers (shared filters)
 # ══════════════════════════════════════════════════════════════════
 
 INDIAN_JOB_PLATFORMS = [
@@ -47,8 +49,8 @@ INDIAN_JOB_PLATFORMS = [
     "linkedin.com/in/jobs",
     "instahyre.com",
     "cutshort.io",
-    "wellfound.com",  # AngelList India
-    "foundit.in",  # formerly Monster India
+    "wellfound.com",
+    "foundit.in",
 ]
 
 INDIAN_TARGET_CITIES = [
@@ -65,39 +67,6 @@ INDIAN_TARGET_CITIES = [
     "kolkata",
 ]
 
-# Greenhouse boards to query (company_name → board_name mapping)
-# TODO: validate which companies use Greenhouse vs Lever vs other ATS
-GREENHOUSE_BOARDS: Dict[str, str] = {
-    "Razorpay": "razorpay",
-    "Swiggy": "swiggy",
-    "CRED": "cred",
-    "Zomato": "zomato",
-    "Freshworks": "freshworks",
-    "Postman": "postman",
-}
-
-INDIAN_COMPANY_PORTALS = [
-    "tcs.com/careers",
-    "infosys.com/careers",
-    "wipro.com/careers",
-    "hcltech.com/careers",
-    "techmahindra.com/careers",
-    "zoho.com/careers",
-    "freshworks.com/careers",
-    "razorpay.com/careers",
-    "swiggy.com/careers",
-    "zomato.com/careers",
-    "paytm.com/careers",
-    "phonepe.com/careers",
-    "dunzo.com/careers",
-    "cred.club/careers",
-    "meesho.com/careers",
-    "sharechat.com/careers",
-    "kreditbee.in/careers",
-    "slice.com/careers",
-]
-
-# Agentic/AI specific keywords for filtering
 AGENTIC_KEYWORDS = [
     "agentic",
     "langgraph",
@@ -130,21 +99,15 @@ LLMOPS_KEYWORDS = [
     "dagster",
     "model monitoring",
     "drift detection",
-    "a/b testing",
     "feature store",
     "model registry",
 ]
-
-
-# ══════════════════════════════════════════════════════════════════
-# Helper Functions
-# ══════════════════════════════════════════════════════════════════
 
 EXCLUDED_KEYWORDS = ["hft", "rust", "c++", "firmware", "embedded", "c/c++"]
 
 
 def filter_jobs(jobs: list[Dict]) -> list[Dict]:
-    """Prune unwanted roles before they hit the Graph to save tokens."""
+    """Prune unwanted roles before they hit the graph."""
     filtered = []
     for job in jobs:
         title = (job.get("title") or "").lower()
@@ -158,34 +121,22 @@ def is_india_relevant(location: str, source_domain: str) -> bool:
     location_lower = location.lower()
     domain_lower = source_domain.lower()
 
-    # Check platform
     if any(platform in domain_lower for platform in INDIAN_JOB_PLATFORMS):
         return True
-
-    # Check location
     if any(city in location_lower for city in INDIAN_TARGET_CITIES):
         return True
-
-    # Check remote India
     if "remote" in location_lower and "india" in location_lower:
         return True
-
     return False
 
 
 def is_agentic_relevant(title: str, description: str, tech_stack: list) -> bool:
     """Check if job is relevant to Agentic AI/ML/LLMOps roles."""
     text = f"{title} {description} {' '.join(tech_stack)}".lower()
-
-    # Check for Agentic keywords
     if any(kw in text for kw in AGENTIC_KEYWORDS):
         return True
-
-    # Check for LLMOps keywords
     if any(kw in text for kw in LLMOPS_KEYWORDS):
         return True
-
-    # Check for core ML/AI terms
     core_keywords = [
         "machine learning",
         "deep learning",
@@ -197,122 +148,201 @@ def is_agentic_relevant(title: str, description: str, tech_stack: list) -> bool:
         "pytorch",
         "tensorflow",
     ]
-    if any(kw in text for kw in core_keywords):
-        return True
-
-    return False
+    return any(kw in text for kw in core_keywords)
 
 
 def extract_tech_stack(text: str) -> list:
     """Extract technology stack from job description text."""
     tech_keywords = [
-        # Languages
-        "python",
-        "go",
-        "golang",
-        "rust",
-        "java",
-        "typescript",
-        "javascript",
-        "c++",
-        "scala",
-        "kotlin",
-        # ML/AI Frameworks
-        "pytorch",
-        "tensorflow",
-        "jax",
-        "flax",
-        "keras",
-        "huggingface",
-        "transformers",
-        "langchain",
-        "langgraph",
-        "llama-index",
-        "haystack",
-        # MLOps/LLMOps
-        "mlflow",
-        "wandb",
-        "kubeflow",
-        "airflow",
-        "prefect",
-        "dagster",
-        "vllm",
-        "triton",
-        "tgi",
-        "bento",
-        "ollama",
-        "ray",
-        "kuberay",
-        "mlrun",
-        "zenml",
-        "evidently",
-        # Infrastructure
-        "kubernetes",
-        "k8s",
-        "docker",
-        "helm",
-        "terraform",
-        "ansible",
-        "aws",
-        "gcp",
-        "azure",
-        "gke",
-        "eks",
-        "aks",
-        # Data
-        "postgresql",
-        "mysql",
-        "redis",
-        "clickhouse",
-        "snowflake",
-        "bigquery",
-        "kafka",
-        "pulsar",
-        "spark",
-        "flink",
-        "dbt",
-        # Vector DBs
-        "pinecone",
-        "weaviate",
-        "milvus",
-        "qdrant",
-        "chroma",
-        "pgvector",
-        # Monitoring
-        "prometheus",
-        "grafana",
-        "datadog",
-        "newrelic",
+        "python", "go", "golang", "rust", "java", "typescript", "javascript",
+        "c++", "scala", "kotlin", "pytorch", "tensorflow", "jax", "flax",
+        "keras", "huggingface", "transformers", "langchain", "langgraph",
+        "llama-index", "haystack", "mlflow", "wandb", "kubeflow", "airflow",
+        "prefect", "dagster", "vllm", "triton", "tgi", "bento", "ollama",
+        "ray", "kuberay", "kubernetes", "k8s", "docker", "helm", "terraform",
+        "aws", "gcp", "azure", "postgresql", "redis", "clickhouse", "kafka",
+        "spark", "pinecone", "weaviate", "milvus", "qdrant", "chroma", "pgvector",
     ]
-
     text_lower = text.lower()
     found = []
     for kw in tech_keywords:
         if kw in text_lower and kw not in found:
             found.append(kw)
-
     return found
 
 
-# ══════════════════════════════════════════════════════════════════
-# Main Node Function
-# ══════════════════════════════════════════════════════════════════
+def _append_error(state: AgentState, tool: str, error: Exception, severity: str = "warning") -> None:
+    log = state.setdefault("error_log", [])
+    log.append({
+        "agent": "scraper",
+        "tool": tool,
+        "error": str(error),
+        "timestamp": datetime.now().isoformat(),
+        "severity": severity,
+    })
 
 
-def node_scraper(state: AgentState) -> AgentState:
+_ENGINEERING_TITLE_HINTS = (
+    "engineer",
+    "developer",
+    "software",
+    "sde",
+    "swe",
+    "scientist",
+    "machine learning",
+    "data ",
+    "ml ",
+    "ai ",
+    "platform",
+    "backend",
+    "fullstack",
+    "full stack",
+    "devops",
+    "sre",
+    "research",
+)
+
+
+def _is_engineering_ish(job: Dict[str, Any]) -> bool:
+    title = (job.get("title") or "").lower()
+    return any(h in title for h in _ENGINEERING_TITLE_HINTS)
+
+
+def _apply_query_filters(
+    jobs: List[Dict[str, Any]],
+    plan: ScrapePlan,
+) -> List[Dict[str, Any]]:
     """
-    Scraper Agent: Dynamically invokes scraping tools based on target domains.
-    Uses real tools: fetch_financial_news_rss for RSS feeds, fetch_webpage_playwright for webpages.
-    Filters for India-relevant Agentic AI/LLMOps/ML roles.
+    Apply topic keywords + soft India preference with progressive fallback.
+
+    1) keyword ∩ india preference
+    2) keyword-only (if any keyword hits)
+    3) engineering-ish ∩ india
+    4) engineering-ish global
+    5) all jobs (still subject to exclusion filter later)
     """
-    logger.info("[Scraper] Starting scrape with real tools (India-focused)...")
-    state["current_agent"] = "scraper"
-    state["updated_at"] = datetime.now()
+    if not jobs:
+        return []
 
-    # Simulate scraping delay
-    time.sleep(0.1)
+    def india_ok(job: Dict[str, Any]) -> bool:
+        return job_matches_india_preference(job, plan.prefer_india_locations)
 
-    # Example 1: Fetch financial/business news via RSS
+    kw = plan.title_keywords
+    strict = [
+        j for j in jobs
+        if job_matches_keywords(j, kw) and india_ok(j)
+    ]
+    if strict:
+        return strict
+
+    if kw:
+        kw_only = [j for j in jobs if job_matches_keywords(j, kw)]
+        if kw_only:
+            india_subset = [j for j in kw_only if india_ok(j)]
+            logger.info(
+                "[Scraper] Strict topic+india empty; using keyword matches "
+                "(%d, india_subset=%d)",
+                len(kw_only),
+                len(india_subset),
+            )
+            return india_subset or kw_only
+
+    eng_india = [j for j in jobs if _is_engineering_ish(j) and india_ok(j)]
+    if eng_india:
+        logger.info(
+            "[Scraper] No topic hits; falling back to %d India engineering-ish roles",
+            len(eng_india),
+        )
+        return eng_india
+
+    eng = [j for j in jobs if _is_engineering_ish(j)]
+    if eng:
+        logger.info(
+            "[Scraper] No India engineering hits; falling back to %d engineering-ish roles",
+            len(eng),
+        )
+        return eng
+
+    logger.info(
+        "[Scraper] Filters matched nothing useful; keeping all %d jobs",
+        len(jobs),
+    )
+    return list(jobs)
+
+
+
+def _fetch_greenhouse(plan: ScrapePlan) -> List[Dict[str, Any]]:
+    jobs: List[Dict[str, Any]] = []
+    # Single strongest keyword for API-side title prefilter (optional)
+    api_kw = plan.title_keywords[0] if len(plan.title_keywords) == 1 else None
+
+    logger.info(
+        "[Scraper] Greenhouse boards=%s keywords=%s",
+        [b for _, b in plan.greenhouse],
+        plan.title_keywords,
+    )
+    for company_name, board in plan.greenhouse:
+        try:
+            payload: Dict[str, Any] = {
+                "board": board,
+                "max_results": plan.max_results_per_board,
+            }
+            if api_kw:
+                payload["keywords"] = api_kw
+            gh_result = search_greenhouse_jobs.invoke(payload)
+            if gh_result.get("error"):
+                logger.warning(
+                    "[Scraper] Greenhouse board '%s' failed: %s",
+                    board,
+                    gh_result["error"],
+                )
+                continue
+            for raw_job in gh_result.get("jobs", []):
+                norm = normalize_greenhouse_job(raw_job)
+                norm["company_name"] = company_name
+                validated = validate_job_dict(norm)
+                if validated:
+                    jobs.append(validated)
+                    logger.info("  -> [Greenhouse] %s @ %s", validated["title"], company_name)
+        except Exception as e:
+            logger.warning("[Scraper] Greenhouse board '%s' exception: %s", board, e)
+    return jobs
+
+
+def _fetch_lever(plan: ScrapePlan) -> List[Dict[str, Any]]:
+    jobs: List[Dict[str, Any]] = []
+    api_kw = plan.title_keywords[0] if len(plan.title_keywords) == 1 else None
+
+    logger.info("[Scraper] Lever boards=%s", [b for _, b in plan.lever])
+    for company_name, board in plan.lever:
+        try:
+            payload: Dict[str, Any] = {
+                "board": board,
+                "max_results": min(plan.max_results_per_board, 10),
+            }
+            if api_kw:
+                payload["keywords"] = api_kw
+            lv_result = search_lever_jobs.invoke(payload)
+            if lv_result.get("error"):
+                logger.warning(
+                    "[Scraper] Lever board '%s' failed: %s",
+                    board,
+                    lv_result["error"],
+                )
+                continue
+            for raw_job in lv_result.get("jobs", []):
+                norm = normalize_lever_job(raw_job)
+                norm["company_name"] = company_name
+                validated = validate_job_dict(norm)
+                if validated:
+                    jobs.append(validated)
+                    logger.info("  -> [Lever] %s @ %s", validated["title"], company_name)
+        except Exception as e:
+            logger.warning("[Scraper] Lever board '%s' exception: %s", board, e)
+    return jobs
+
+
+def _fetch_rss_metrics(state: AgentState) -> None:
     try:
         rss_result = fetch_financial_news_rss.invoke(
             {
@@ -321,9 +351,9 @@ def node_scraper(state: AgentState) -> AgentState:
             }
         )
         logger.info(
-            f"[Scraper] RSS fetch returned {len(rss_result.get('articles', []))} articles"
+            "[Scraper] RSS fetch returned %s articles",
+            len(rss_result.get("articles", [])),
         )
-
         if rss_result.get("articles"):
             for article in rss_result["articles"][:2]:
                 mock_metrics = CompanyMetrics(
@@ -341,167 +371,178 @@ def node_scraper(state: AgentState) -> AgentState:
                     fiscal_period=None,
                 )
                 existing_metrics = state.get("company_metrics", [])
-                existing_tickers = {
-                    m.get("ticker") for m in existing_metrics if m.get("ticker")
-                }
                 state["company_metrics"] = existing_metrics + [
                     mock_metrics.model_dump(mode="json")
                 ]
     except Exception as e:
-        logger.warning(f"[Scraper] RSS fetch failed: {e}")
-        state["error_log"].append({
-            "agent": "scraper",
-            "tool": "fetch_financial_news_rss",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat(),
-            "severity": "warning",
-        })
+        logger.warning("[Scraper] RSS fetch failed: %s", e)
+        _append_error(state, "fetch_financial_news_rss", e, severity="warning")
 
-    # Scrape a real webpage via Playwright
-    try:
-        url = "https://boards.greenhouse.io/openai"
-        logger.info(f"[Scraper] Playwright fetching live URL: {url}")
-        page_result = fetch_webpage_playwright.invoke(
-            {
-                "url": url,
-                "wait_for_timeout": 5000,
-            }
-        )
-        logger.info(
-            f"[Scraper] Playwright returned page: {page_result.get('title')}"
-        )
 
-        state["raw_scraped_pages"].append(
-            {
-                "url": page_result["url"],
-                "html": page_result["html"],
-                "markdown": page_result["markdown"],
-                "metadata": {
-                    "scraped_at": page_result["scraped_at"],
-                    "scraper": "playwright-stub",
-                    "status": 200,
-                },
-            }
-        )
-    except Exception as e:
-        logger.warning(f"[Scraper] Playwright fetch failed: {e}")
-        state["error_log"].append({
-            "agent": "scraper",
-            "tool": "fetch_webpage_playwright",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat(),
-            "severity": "error",
-        })
-
-    # 2. Fetch jobs from Greenhouse API (structured data, preferred path)
-    new_job_dicts: List[Dict[str, Any]] = []
-    logger.info(f"[Scraper] Querying {len(GREENHOUSE_BOARDS)} Greenhouse boards...")
-    for company_name, board in GREENHOUSE_BOARDS.items():
+def _fetch_playwright_pages(state: AgentState, urls: List[str]) -> None:
+    for url in urls:
         try:
-            gh_result = search_greenhouse_jobs.invoke({
-                "board": board,
-                "max_results": 20,
-            })
-            if gh_result.get("error"):
-                logger.warning(f"[Scraper] Greenhouse board '{board}' failed: {gh_result['error']}")
-                continue
-            for raw_job in gh_result.get("jobs", []):
-                norm = normalize_greenhouse_job(raw_job)
-                norm["company_name"] = company_name
-                validated = validate_job_dict(norm)
-                if validated:
-                    new_job_dicts.append(validated)
-                    logger.info(f"  -> [Greenhouse] {validated['title']} @ {company_name}")
+            logger.info("[Scraper] Playwright fetching: %s", url)
+            page_result = fetch_webpage_playwright.invoke(
+                {
+                    "url": url,
+                    "wait_for_timeout": 5000,
+                }
+            )
+            state.setdefault("raw_scraped_pages", []).append(
+                {
+                    "url": page_result["url"],
+                    "html": page_result.get("html", ""),
+                    "markdown": page_result.get("markdown", ""),
+                    "metadata": {
+                        "scraped_at": page_result.get("scraped_at"),
+                        "scraper": "playwright",
+                        "status": 200,
+                    },
+                }
+            )
         except Exception as e:
-            logger.warning(f"[Scraper] Greenhouse board '{board}' exception: {e}")
+            logger.warning("[Scraper] Playwright fetch failed for %s: %s", url, e)
+            # Non-fatal if ATS boards still produce jobs; empty scrape is what triggers recovery
+            _append_error(state, "fetch_webpage_playwright", e, severity="warning")
 
-    # 3. Fetch jobs from Lever boards (Playwright + BS4, no Gemini cost)
-    LEVER_BOARDS: Dict[str, str] = {
-        "Groww": "groww",
-        "Dunzo": "dunzo",
-        "Unacademy": "unacademy",
-        "UpGrad": "upgrad",
-    }
-    logger.info(f"[Scraper] Querying {len(LEVER_BOARDS)} Lever boards...")
-    for company_name, board in LEVER_BOARDS.items():
-        try:
-            lv_result = search_lever_jobs.invoke({
-                "board": board,
-                "max_results": 10,
-            })
-            if lv_result.get("error"):
-                logger.warning(f"[Scraper] Lever board '{board}' failed: {lv_result['error']}")
-                continue
-            for raw_job in lv_result.get("jobs", []):
-                norm = normalize_lever_job(raw_job)
-                norm["company_name"] = company_name
-                validated = validate_job_dict(norm)
-                if validated:
-                    new_job_dicts.append(validated)
-                    logger.info(f"  -> [Lever] {validated['title']} @ {company_name}")
-        except Exception as e:
-            logger.warning(f"[Scraper] Lever board '{board}' exception: {e}")
 
-    # 4. Extract Jobs from Playwright scraped pages using Gemini 2.5 Flash
-    # Only initialize Gemini when scraped pages exist AND API key is available
+def _extract_jobs_with_gemini(state: AgentState) -> List[Dict[str, Any]]:
     scraped_pages = state.get("raw_scraped_pages", [])
     pages_with_content = [p for p in scraped_pages if len(p.get("markdown", "")) > 50]
-    has_gemini_key = bool(os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"))
-
-    if pages_with_content and has_gemini_key:
-        try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            
-            class JobExtraction(BaseModel):
-                jobs: list[JobOpening]
-
-            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
-            structured_llm = llm.with_structured_output(JobExtraction)
-
-            for page in pages_with_content:
-                md_text = page.get("markdown", "")
-                url = page.get("url", "")
-                
-                try:
-                    logger.info(f"[Scraper] Extracting jobs via LLM from {url}...")
-                    prompt = f"""
-                    Extract all job openings from the following career page markdown.
-                    The source URL is {url}.
-                    If compensation or specific skills are missing, leave them empty or null.
-                    Only extract actual job listings. Limit to the top 5 jobs found.
-                    
-                    Markdown Content:
-                    {md_text[:25000]}
-                    """
-                    
-                    result = structured_llm.invoke(prompt)
-                    
-                    if result and result.jobs:
-                        for job in result.jobs:
-                            job.source_url = url
-                            new_job_dicts.append(job.model_dump(mode="json"))
-                            logger.info(f"  -> Extracted: {job.title} at {job.company_name}")
-                            
-                except Exception as e:
-                    logger.error(f"[Scraper] LLM Extraction failed for {url}: {e}")
-        except Exception as e:
-            logger.warning(f"[Scraper] Gemini initialization failed (non-fatal): {e}")
-    else:
-        if not pages_with_content:
-            logger.info("[Scraper] No Playwright scraped pages with content — skipping Gemini extraction")
-        if not has_gemini_key:
-            logger.info("[Scraper] No Gemini API key found — skipping LLM extraction")
-
-    existing_jobs = state.get("job_openings", [])
-
-    # Apply early-stopping guardrails
-    filtered_jobs = filter_jobs(new_job_dicts)
-    state["job_openings"] = existing_jobs + filtered_jobs
-
-    gh_count = sum(1 for j in new_job_dicts if j.get("scraper_source") == "ats_greenhouse")
-    lv_count = sum(1 for j in new_job_dicts if j.get("scraper_source") == "ats_lever")
-    pw_count = len(new_job_dicts) - gh_count - lv_count
-    logger.info(
-        f"[Scraper] Added {len(filtered_jobs)} jobs ({gh_count} Greenhouse, {lv_count} Lever, {pw_count} Gemini/Playwright) after guardrails"
+    has_gemini_key = bool(
+        os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
     )
+    if not pages_with_content or not has_gemini_key:
+        if not pages_with_content:
+            logger.info("[Scraper] No Playwright pages with content — skip Gemini")
+        if not has_gemini_key:
+            logger.info("[Scraper] No Gemini API key — skip LLM extraction")
+        return []
+
+    extracted: List[Dict[str, Any]] = []
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        class JobExtraction(BaseModel):
+            jobs: list[JobOpening]
+
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+        structured_llm = llm.with_structured_output(JobExtraction)
+
+        for page in pages_with_content:
+            md_text = page.get("markdown", "")
+            url = page.get("url", "")
+            try:
+                logger.info("[Scraper] Extracting jobs via LLM from %s...", url)
+                prompt = f"""
+Extract all job openings from the following career page markdown.
+The source URL is {url}.
+If compensation or specific skills are missing, leave them empty or null.
+Only extract actual job listings. Limit to the top 5 jobs found.
+
+Markdown Content:
+{md_text[:25000]}
+"""
+                result = structured_llm.invoke(prompt)
+                if result and result.jobs:
+                    for job in result.jobs:
+                        job.source_url = url
+                        extracted.append(job.model_dump(mode="json"))
+                        logger.info(
+                            "  -> Extracted: %s at %s", job.title, job.company_name
+                        )
+            except Exception as e:
+                logger.error("[Scraper] LLM extraction failed for %s: %s", url, e)
+    except Exception as e:
+        logger.warning("[Scraper] Gemini initialization failed (non-fatal): %s", e)
+    return extracted
+
+
+# ══════════════════════════════════════════════════════════════════
+# Main node
+# ══════════════════════════════════════════════════════════════════
+
+
+def node_scraper(state: AgentState) -> AgentState:
+    """
+    Scraper Agent: selects ATS boards from the user query, fetches jobs,
+    optionally pulls RSS (financial) or Playwright pages (named companies).
+
+    When ``fallback_activated["scraper"]`` is set (error_recovery), uses a
+    broader scrape plan with relaxed filters.
+    """
+    query = state.get("user_query") or ""
+    fallback = bool(state.get("fallback_activated", {}).get("scraper"))
+    plan = select_scrape_plan(query, fallback=fallback)
+    logger.info(
+        "[Scraper] plan reasons=%s gh=%d lever=%d rss=%s playwright=%d "
+        "keywords=%s fallback=%s",
+        plan.reasons,
+        len(plan.greenhouse),
+        len(plan.lever),
+        plan.fetch_rss,
+        len(plan.playwright_urls),
+        plan.title_keywords,
+        fallback,
+    )
+
+    state["current_agent"] = "scraper"
+    state["updated_at"] = datetime.now()
+    state.setdefault("error_log", [])
+    state.setdefault("raw_scraped_pages", [])
+    state.setdefault("company_metrics", [])
+    state.setdefault("job_openings", [])
+    state.setdefault("fallback_activated", {})
+    state.setdefault("retry_count", {})
+
+    # Count attempts for observability
+    state["retry_count"]["scraper"] = state["retry_count"].get("scraper", 0) + 1
+
+    if plan.fetch_rss:
+        _fetch_rss_metrics(state)
+
+    if plan.playwright_urls:
+        _fetch_playwright_pages(state, plan.playwright_urls)
+
+    new_job_dicts: List[Dict[str, Any]] = []
+    new_job_dicts.extend(_fetch_greenhouse(plan))
+    new_job_dicts.extend(_fetch_lever(plan))
+    new_job_dicts.extend(_extract_jobs_with_gemini(state))
+
+    filtered = _apply_query_filters(new_job_dicts, plan)
+    filtered = filter_jobs(filtered)
+
+    existing = state.get("job_openings", [])
+    state["job_openings"] = existing + filtered
+
+    gh_count = sum(1 for j in filtered if j.get("scraper_source") == "ats_greenhouse")
+    lv_count = sum(1 for j in filtered if j.get("scraper_source") == "ats_lever")
+    other = len(filtered) - gh_count - lv_count
+    logger.info(
+        "[Scraper] Added %d jobs (%d Greenhouse, %d Lever, %d other) plan=%s",
+        len(filtered),
+        gh_count,
+        lv_count,
+        other,
+        plan.reasons,
+    )
+
+    # Signal recovery only when this pass produced nothing useful
+    has_jobs = bool(state.get("job_openings"))
+    has_metrics = bool(state.get("company_metrics"))
+    if not has_jobs and not has_metrics:
+        state["error_log"].append({
+            "agent": "scraper",
+            "tool": "scrape_plan",
+            "error": (
+                f"No jobs or metrics after scrape "
+                f"(plan={plan.reasons}, fallback={fallback})"
+            ),
+            "timestamp": datetime.now().isoformat(),
+            "severity": "error",
+            "attempt": state["retry_count"].get("scraper", 1),
+        })
+        logger.warning("[Scraper] Empty result — recorded error for recovery routing")
+
     return state

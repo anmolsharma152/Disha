@@ -1,10 +1,7 @@
 """
-Project Alpha-Nexus - LangGraph Multi-Agent Orchestrator
+Disha - LangGraph Multi-Agent Orchestrator
 Main entry point compiling the state graph with Supervisor pattern.
 Uses modular agents from agents/ package.
-
-# NOTE: Specialist agents currently run on fixture data and deterministic scoring; 
-# real LLM integration and dynamic scraping is planned for Phase 2.
 """
 
 from __future__ import annotations
@@ -41,7 +38,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
 )
-logger = logging.getLogger("alpha_nexus")
+logger = logging.getLogger("disha")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -225,47 +222,86 @@ def node_synthesize(state: AgentState) -> AgentState:
 
 def node_error_recovery(state: AgentState) -> AgentState:
     """
-    Error Recovery Node: Activated when a primary agent fails.
-    Implements fallback pipeline: Playwright -> BeautifulSoup -> Alternative APIs -> Cached Data.
+    Error Recovery Node: Activated when a primary agent fails or returns empty.
+
+    Scraper fallback: mark fallback_activated and re-run scraper with a broader plan.
+    Other agents: skip to the next pipeline stage so the user still gets an answer.
     """
     logger.warning("[Error Recovery] Attempting fallback pipeline...")
     state["current_agent"] = "error_recovery"
     state["updated_at"] = datetime.now()
+    state.setdefault("fallback_activated", {})
+    state.setdefault("error_log", [])
 
     error_log = state.get("error_log", [])
-    last_error = error_log[-1] if error_log else {"agent": "unknown", "error": "unknown"}
-
-    # Clear error_log so supervisor doesn't re-route here
-    state["error_log"] = []
-
-    # Determine which stage failed
+    last_error = error_log[-1] if error_log else {"agent": "scraper", "error": "unknown"}
     failed_agent = last_error.get("agent", "scraper")
 
-    if failed_agent == "scraper" and not state.get("fallback_activated", {}).get("scraper"):
-        # Try BeautifulSoup fallback
-        logger.info("[Error Recovery] Trying BeautifulSoup + httpx fallback...")
-        state["fallback_activated"]["scraper"] = True
-        state["routing_key"] = "scraper"
-        logger.info("[Error Recovery] Fallback activated -> routing to Scraper")
+    # Preserve history but clear active errors so supervisor won't re-enter immediately
+    recovered = list(error_log)
+    state["error_log"] = []
+    state.setdefault("knowledge_gaps", [])
+    if recovered:
+        state["knowledge_gaps"].append(
+            f"recovered_from:{failed_agent}:{recovered[-1].get('error', '')[:120]}"
+        )
+
+    if failed_agent == "scraper":
+        if not state["fallback_activated"].get("scraper"):
+            state["fallback_activated"]["scraper"] = True
+            state["routing_key"] = "scraper"
+            logger.info(
+                "[Error Recovery] Scraper fallback activated "
+                "(broader boards, relaxed filters) -> scraper"
+            )
+        else:
+            # Already tried broad scrape — continue pipeline with empty jobs
+            state["routing_key"] = "synthesize"
+            logger.warning(
+                "[Error Recovery] Scraper fallback already used -> synthesize"
+            )
 
     elif failed_agent == "financial_analyst":
-        logger.info("[Error Recovery] Using heuristic financial scoring...")
         state["fallback_activated"]["financial_analyst"] = True
+        # Minimal stub so synthesize/career can proceed
+        if not state.get("financial_analysis"):
+            state["financial_analysis"] = {
+                "rating": "UNAVAILABLE",
+                "thesis": "Financial analysis skipped after agent failure.",
+                "scores": {},
+                "risk_flags": [],
+                "fallback": True,
+            }
         state["routing_key"] = "career_strategy"
+        logger.info("[Error Recovery] Financial failed -> career_strategy")
 
     elif failed_agent == "career_strategy":
-        logger.info("[Error Recovery] Using basic keyword matching...")
         state["fallback_activated"]["career_strategy"] = True
-        state["routing_key"] = "learning_companion"
+        if not state.get("career_recommendations"):
+            state["career_recommendations"] = []
+        query = (state.get("user_query") or "").lower()
+        if any(kw in query for kw in ["learn", "roadmap", "paper", "research", "study"]):
+            state["routing_key"] = "learning_companion"
+        else:
+            state["routing_key"] = "synthesize"
+        logger.info(
+            "[Error Recovery] Career failed -> %s", state["routing_key"]
+        )
 
     elif failed_agent == "learning_companion":
-        logger.info("[Error Recovery] Skipping learning -> synthesize")
         state["fallback_activated"]["learning_companion"] = True
+        if not state.get("learning_roadmap"):
+            state["learning_roadmap"] = {
+                "summary": "Learning roadmap unavailable after agent failure.",
+                "phases": [],
+                "fallback": True,
+            }
         state["routing_key"] = "synthesize"
+        logger.info("[Error Recovery] Learning failed -> synthesize")
 
     else:
-        logger.error("[Error Recovery] Unknown failure point -> END")
-        state["routing_key"] = "end"
+        logger.error("[Error Recovery] Unknown failure (%s) -> synthesize", failed_agent)
+        state["routing_key"] = "synthesize"
 
     return state
 
@@ -310,12 +346,27 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # All sub-agents route back to supervisor (except career/financial/learning go to guardrail first)
+    # Specialists return to supervisor for the next routing decision
     workflow.add_edge("scraper", "supervisor")
     workflow.add_edge("financial_analyst", "supervisor")
     workflow.add_edge("career_strategy", "supervisor")
     workflow.add_edge("learning_companion", "supervisor")
-    workflow.add_edge("error_recovery", "supervisor")
+
+    # Recovery routes directly to the chosen next node (must not re-enter
+    # supervisor with routing_key=scraper or it looks like "scrape finished")
+    workflow.add_conditional_edges(
+        "error_recovery",
+        should_continue,
+        {
+            "scraper": "scraper",
+            "financial_analyst": "financial_analyst",
+            "career_strategy": "career_strategy",
+            "learning_companion": "learning_companion",
+            "error_recovery": "error_recovery",
+            "synthesize": "guardrail",
+            "end": END,
+        },
+    )
 
     # Guardrail always goes to synthesize
     workflow.add_edge("guardrail", "synthesize")
@@ -335,7 +386,7 @@ def build_graph() -> StateGraph:
 # Main Execution
 # ──────────────────────────────────────────────────────────────
 
-def run_alpha_nexus(
+def run_disha(
     user_query: str,
     user_id: str = "default",
     session_id: str | None = None,
@@ -343,7 +394,7 @@ def run_alpha_nexus(
     thread_id: str | None = None,
 ) -> Dict[str, Any]:
     """
-    Executes the full Alpha-Nexus pipeline for a user query.
+    Executes the full Disha pipeline for a user query.
 
     Args:
         user_query: Natural language query from user
@@ -355,7 +406,7 @@ def run_alpha_nexus(
     Returns:
         Final state dict with final_answer, citations, and all intermediate data
     """
-    logger.info(f"=== Alpha-Nexus Pipeline Started ===")
+    logger.info(f"=== Disha Pipeline Started ===")
     logger.info(f"Query: {user_query}")
 
     # Build graph
@@ -383,7 +434,7 @@ def run_alpha_nexus(
     return final_state
 
 
-def stream_alpha_nexus(
+def stream_disha(
     user_query: str,
     user_id: str = "default",
     session_id: str | None = None,
@@ -391,7 +442,7 @@ def stream_alpha_nexus(
     thread_id: str | None = None,
 ):
     """
-    Streams the Alpha-Nexus pipeline execution for real-time monitoring.
+    Streams the Disha pipeline execution for real-time monitoring.
     Yields state updates after each node execution.
     """
     app = build_graph()
@@ -416,7 +467,7 @@ if __name__ == "__main__":
     import argparse
     import json
 
-    parser = argparse.ArgumentParser(description="Project Alpha-Nexus - Market Intelligence & Career Optimization")
+    parser = argparse.ArgumentParser(description="Disha - Market Intelligence & Career Optimization")
     parser.add_argument("query", nargs="?", default="Find Agentic AI and Backend roles in Bangalore on Naukri and suggest an LLMOps learning roadmap")
     parser.add_argument("--user-id", default="cli_user")
     parser.add_argument("--session-id", default=None)
@@ -428,7 +479,7 @@ if __name__ == "__main__":
 
     if args.stream:
         print(f"Streaming execution for: {args.query}\n{'='*60}")
-        for i, state in enumerate(stream_alpha_nexus(
+        for i, state in enumerate(stream_disha(
             user_query=args.query,
             user_id=args.user_id,
             session_id=args.session_id,
@@ -440,7 +491,7 @@ if __name__ == "__main__":
             if state.get("final_answer"):
                 print(f"  FINAL ANSWER: {state['final_answer'][:200]}...")
     else:
-        result = run_alpha_nexus(
+        result = run_disha(
             user_query=args.query,
             user_id=args.user_id,
             session_id=args.session_id,

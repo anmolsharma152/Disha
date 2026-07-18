@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - FastAPI Server
+Disha - FastAPI Server
 Async API gateway exposing the LangGraph orchestration.
 """
 
@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from main import run_alpha_nexus, stream_alpha_nexus
+from main import run_disha, stream_disha
 from schemas import AgentState
 
 # ──────────────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
 )
-logger = logging.getLogger("alpha_nexus.api")
+logger = logging.getLogger("disha.api")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ class ChatResponse(BaseModel):
 # ──────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="Alpha-Nexus API",
+    title="Disha API",
     description="Personal Intelligence OS - Market Intelligence & Career Optimization",
     version="0.1.0",
     docs_url="/docs",
@@ -96,7 +96,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "service": "alpha-nexus-api",
+        "service": "disha-api",
         "version": "0.1.0",
         "timestamp": datetime.utcnow().isoformat(),
     }
@@ -125,7 +125,7 @@ async def api_status():
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     """
-    Main chat endpoint - executes the full Alpha-Nexus pipeline.
+    Main chat endpoint - executes the full Disha pipeline.
     Returns final synthesized answer with citations and confidence.
     """
     logger.info(f"Chat request: user={request.user_id}, query_len={len(request.query)}")
@@ -135,7 +135,7 @@ async def chat_endpoint(request: ChatRequest):
         session_id = request.session_id or str(uuid.uuid4())
 
         # Run pipeline
-        result = run_alpha_nexus(
+        result = run_disha(
             user_query=request.query,
             user_id=request.user_id,
             session_id=session_id,
@@ -188,7 +188,7 @@ async def chat_stream_endpoint(request: ChatRequest):
     async def event_generator():
         try:
             for i, state in enumerate(
-                stream_alpha_nexus(
+                stream_disha(
                     user_query=request.query,
                     user_id=request.user_id,
                     session_id=session_id,

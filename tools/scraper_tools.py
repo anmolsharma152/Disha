@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Scraper Tools
+Disha - Scraper Tools
 LangChain-compatible tools for data acquisition layer.
 """
 
@@ -13,7 +13,7 @@ import feedparser
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
-logger = logging.getLogger("alpha_nexus.tools")
+logger = logging.getLogger("disha.tools")
 
 
 # ──────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-# Project Alpha-Nexus .gitignore
+# Disha .gitignore
 
 # Python virtual environment
 venv/
@@ -54,3 +54,7 @@ outputs/
 # Temporary files
 tmp/
 temp/
+
+# Local virtualenvs / tooling artifacts
+.venv/
+.playwright-mcp/

@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Supervisor Agent
+Disha - Supervisor Agent
 Orchestrates the multi-agent workflow with cyclic state management.
 """
 
@@ -12,7 +12,7 @@ from typing import Any, Dict, Literal
 
 from schemas import AgentState
 
-logger = logging.getLogger("alpha_nexus.agents.supervisor")
+logger = logging.getLogger("disha.agents.supervisor")
 
 # ══════════════════════════════════════════════════════════════════
 # Guardrail: Hard exclusions (HFT, Rust, C++, Visa-sponsorship metrics)
@@ -173,30 +173,31 @@ def node_supervisor(state: AgentState) -> AgentState:
         return state
 
     elif state.get("routing_key") == "scraper":
-        # Check for errors first
-        if any(e.get("severity") == "error" for e in state.get("error_log", [])):
+        fallback_scraper = bool(state.get("fallback_activated", {}).get("scraper"))
+        scrape_failed = not has_metrics and not has_jobs
+
+        # Empty scrape → error_recovery once; after fallback, continue with partial/empty
+        if scrape_failed and not fallback_scraper:
             state["routing_key"] = "error_recovery"
-            logger.warning("[Supervisor] Errors detected during scraping -> routing to Error Recovery")
+            logger.warning(
+                "[Supervisor] Scraper returned no data -> Error Recovery"
+            )
             return state
-        if not has_metrics and not has_jobs:
-            # Scraper returned no data and no errors — should not happen, but guard
-            state["routing_key"] = "end"
-            logger.warning("[Supervisor] Scraper returned no data -> END")
-            return state
-        # Scraper returned data -> analyze
+
+        if scrape_failed and fallback_scraper:
+            # Give career/financial a chance to produce a graceful empty answer
+            logger.warning(
+                "[Supervisor] Scraper empty after fallback — continuing pipeline"
+            )
+
+        # Scraper returned data (or empty after fallback) -> analyze by intent
         if any(kw in query for kw in ["invest", "stock", "financial", "risk", "valuation", "market"]):
             state["routing_key"] = "financial_analyst"
             logger.info("[Supervisor] Data collected -> delegating to Financial Analyst")
         elif any(kw in query for kw in ["job", "career", "salary", "hiring", "role", "apply", "skill", "learn", "roadmap", "paper", "research"]):
-            # Check if learning roadmap is requested - if so, do career first then learning
-            if any(kw in query for kw in ["learn", "roadmap", "paper", "research", "study"]):
-                state["routing_key"] = "career_strategy"
-                logger.info("[Supervisor] Data collected -> delegating to Career Strategy (then Learning)")
-            else:
-                state["routing_key"] = "career_strategy"
-                logger.info("[Supervisor] Data collected -> delegating to Career Strategy")
+            state["routing_key"] = "career_strategy"
+            logger.info("[Supervisor] Data collected -> delegating to Career Strategy")
         else:
-            # Default: career strategy first
             state["routing_key"] = "career_strategy"
             logger.info("[Supervisor] Data collected -> delegating to Career Strategy (default)")
         return state
@@ -235,16 +236,6 @@ def node_supervisor(state: AgentState) -> AgentState:
         # Already synthesized -> end
         state["routing_key"] = "end"
         logger.info("[Supervisor] Synthesis complete -> END")
-        return state
-
-    elif state.get("routing_key") == "error_recovery":
-        # Error recovery attempted, try alternative or end
-        if state.get("fallback_activated", {}).get("scraper"):
-            state["routing_key"] = "end"
-            logger.warning("[Supervisor] Fallback exhausted -> END")
-        else:
-            state["routing_key"] = "scraper"
-            logger.info("[Supervisor] Error recovery -> retrying Scraper with fallback")
         return state
 
     else:

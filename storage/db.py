@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Database Layer (Async PostgreSQL + pgvector)
+Disha - Database Layer (Async PostgreSQL + pgvector)
 SQLAlchemy 2.0 async models with pgvector support for embeddings.
 """
 
@@ -48,7 +48,7 @@ from schemas import RemotePolicy, ExperienceLevel, ScraperSource
 
 # Async PostgreSQL URL with pgvector support
 # Default to SQLite for local dev if no DATABASE_URL set
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./alpha_nexus.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./disha.db")
 
 # Ensure async driver
 if DATABASE_URL.startswith("postgresql://"):

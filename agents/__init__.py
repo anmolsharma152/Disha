@@ -1,5 +1,5 @@
 """
-Project Alpha-Nexus - Agents Package
+Disha - Agents Package
 Modular multi-agent implementations for the LangGraph orchestration.
 """
 
