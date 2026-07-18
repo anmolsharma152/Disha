@@ -94,7 +94,7 @@ Routing is **deterministic** (no LLM in the control plane). Specialists run **se
 | API | FastAPI, Server-Sent Events |
 | UI | Next.js 14, TypeScript, Tailwind, Shadcn/UI |
 | Storage | SQLAlchemy 2.0 async + pgvector (scaffold) |
-| Config | `user_profile.yaml`, `.env` |
+| Config | `profiles/default.yaml`, optional request `preferences`, `.env` |
 
 ---
 
@@ -166,7 +166,8 @@ Open `http://localhost:3000`. The UI streams agent status, job cards, career rec
 Disha/
 ├── main.py                  # LangGraph compile, CLI, synthesize / error_recovery
 ├── schemas.py               # JobOpening, CompanyMetrics, AgentState, …
-├── user_profile.yaml        # Skills, cities, salary floor, exclusions
+├── profiles/
+│   └── default.yaml         # Generic prefs (empty = no hard personal filters)
 ├── agents/
 │   ├── supervisor_agent.py  # Routing + pre-synthesis guardrail
 │   ├── scraper_agent.py     # ATS + Playwright + optional Gemini extraction
@@ -191,19 +192,42 @@ Disha/
 
 ## Configuration
 
-Edit `user_profile.yaml` for personal targeting. Defaults are India AI/ML–oriented:
+### Preferences (not a hardcoded personal profile)
 
-| Parameter | Default focus |
-|-----------|----------------|
-| Target roles | AI/ML, LLM, LLMOps, ML platform |
-| Cities | Bangalore, Delhi NCR, Pune, Hyderabad, remote India |
-| Salary floor | ₹20 LPA base |
-| Exclusions | HFT, embedded, firmware, kernel, … |
+Disha does **not** bake in one person's resume or likes/dislikes. Career scoring uses:
+
+1. **Request `preferences`** (API) — per-query overrides  
+2. **`profiles/default.yaml`** — product defaults (empty skills/cities/salary = no hard filter)  
+3. **`DISHA_PROFILE_PATH`** — optional YAML path for local defaults  
+
+| Preference | Empty means |
+|------------|-------------|
+| `skills` | Skill match is neutral (not fake 0%) |
+| `target_cities` | No hard location drop |
+| `min_base_salary_inr` | Comp fit = unavailable (not auto “below”) |
+| `experience_years` | Experience fit = unknown |
+
+Product-level domain exclusions (HFT, firmware, …) stay in the **guardrail**, not a personal dossier.
+
+Example API body:
+
+```json
+{
+  "query": "Backend roles in Bangalore",
+  "preferences": {
+    "skills": ["Python", "Kubernetes", "PostgreSQL"],
+    "target_cities": ["bangalore", "remote"],
+    "min_base_salary_inr": 2000000,
+    "experience_years": 3
+  }
+}
+```
 
 Environment:
 
 ```bash
 GEMINI_API_KEY="your_api_key_here"
+# optional: DISHA_PROFILE_PATH=/path/to/prefs.yaml
 # optional frontend
 NEXT_PUBLIC_API_URL="http://localhost:8000"
 ```

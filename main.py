@@ -392,16 +392,18 @@ def run_disha(
     session_id: str | None = None,
     max_iterations: int = 6,
     thread_id: str | None = None,
+    user_profile: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """
     Executes the full Disha pipeline for a user query.
 
     Args:
         user_query: Natural language query from user
-        user_id: User identifier for personalization
+        user_id: User identifier
         session_id: Session identifier (auto-generated if None)
         max_iterations: Maximum supervisor iterations
         thread_id: LangGraph thread ID for checkpointing
+        user_profile: Optional preferences override (skills, cities, salary floor, …)
 
     Returns:
         Final state dict with final_answer, citations, and all intermediate data
@@ -418,6 +420,7 @@ def run_disha(
         user_id=user_id,
         session_id=session_id,
         max_iterations=max_iterations,
+        user_profile=user_profile,
     )
 
     # Configure checkpointing
@@ -440,6 +443,7 @@ def stream_disha(
     session_id: str | None = None,
     max_iterations: int = 6,
     thread_id: str | None = None,
+    user_profile: Dict[str, Any] | None = None,
 ):
     """
     Streams the Disha pipeline execution for real-time monitoring.
@@ -451,6 +455,7 @@ def stream_disha(
         user_id=user_id,
         session_id=session_id,
         max_iterations=max_iterations,
+        user_profile=user_profile,
     )
     config = {"configurable": {"thread_id": thread_id or session_id or str(uuid.uuid4())}}
 

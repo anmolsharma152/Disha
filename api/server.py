@@ -33,6 +33,24 @@ logger = logging.getLogger("disha.api")
 # ──────────────────────────────────────────────────────────────
 
 
+class UserPreferences(BaseModel):
+    """
+    Optional per-request preferences. Empty/omitted fields mean no hard filter.
+    Not a stored personal dossier — pass only what this query should use.
+    """
+
+    display_name: Optional[str] = None
+    skills: Optional[list[str]] = None
+    target_cities: Optional[list[str]] = None
+    target_roles: Optional[list[str]] = None
+    experience_years: Optional[float] = Field(default=None, ge=0, le=50)
+    min_base_salary_inr: Optional[int] = Field(default=None, ge=0)
+    prefer_remote: Optional[bool] = None
+    willing_to_relocate: Optional[bool] = None
+    excluded_keywords: Optional[list[str]] = None
+    excluded_domains: Optional[list[str]] = None
+
+
 class ChatRequest(BaseModel):
     """Request model for /api/chat endpoint."""
 
@@ -45,6 +63,10 @@ class ChatRequest(BaseModel):
         default=6, ge=1, le=20, description="Maximum supervisor iterations"
     )
     stream: bool = Field(default=False, description="Whether to stream response")
+    preferences: Optional[UserPreferences] = Field(
+        default=None,
+        description="Optional career preferences for this request only",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -134,12 +156,18 @@ async def chat_endpoint(request: ChatRequest):
         # Generate session ID if not provided
         session_id = request.session_id or str(uuid.uuid4())
 
+        prefs = (
+            request.preferences.model_dump(exclude_none=True)
+            if request.preferences
+            else None
+        )
         # Run pipeline
         result = run_disha(
             user_query=request.query,
             user_id=request.user_id,
             session_id=session_id,
             max_iterations=request.max_iterations,
+            user_profile=prefs,
         )
 
         # Build response
@@ -187,12 +215,18 @@ async def chat_stream_endpoint(request: ChatRequest):
 
     async def event_generator():
         try:
+            prefs = (
+                request.preferences.model_dump(exclude_none=True)
+                if request.preferences
+                else None
+            )
             for i, state in enumerate(
                 stream_disha(
                     user_query=request.query,
                     user_id=request.user_id,
                     session_id=session_id,
                     max_iterations=request.max_iterations,
+                    user_profile=prefs,
                 )
             ):
                 # Format as SSE

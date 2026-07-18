@@ -181,8 +181,8 @@ if __name__ == "__main__":
     
     # Sample resume
     sample_resume = """
-    Anmol Sharma
-    IIT Mandi - B.Tech Data Science & AI
+    Sample Candidate
+    B.Tech Computer Science
     
     EXPERIENCE:
     - ML Engineer Intern at TechCorp (2023-2024)
@@ -190,7 +190,7 @@ if __name__ == "__main__":
       Fine-tuned Llama-2 7B on domain data using LoRA
       Deployed models with vLLM on Kubernetes
     
-    - Research Assistant at IIT Mandi (2022-2023)
+    - Research Assistant (2022-2023)
       Worked on multi-agent systems with LangGraph
       Published paper on agentic workflows
     

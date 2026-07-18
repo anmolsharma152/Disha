@@ -5,7 +5,7 @@ Pydantic v2 models for validated data exchange across the pipeline.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID, uuid4
@@ -304,6 +304,8 @@ class AgentState(TypedDict, total=False):
     user_query: str
     user_id: Optional[str]
     session_id: str
+    # Optional request-time preferences (not a baked-in personal dossier)
+    user_profile: Dict[str, Any]
 
     # ─── Routing & Control ───
     routing_key: Literal[
@@ -363,15 +365,21 @@ def create_initial_state(
     user_id: Optional[str] = None,
     session_id: Optional[str] = None,
     max_iterations: int = 6,
+    user_profile: Optional[Dict[str, Any]] = None,
 ) -> AgentState:
     """Factory for a clean initial agent state."""
     import uuid
-    now = datetime.utcnow()
+    from tools.profile import resolve_profile
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    seed: Dict[str, Any] = {"user_profile": user_profile} if user_profile else {}
+    profile = resolve_profile(seed)
     return AgentState(
         messages=[],
         user_query=user_query,
         user_id=user_id,
         session_id=session_id or str(uuid.uuid4()),
+        user_profile=profile,
         routing_key="scraper",
         iteration=0,
         max_iterations=max_iterations,

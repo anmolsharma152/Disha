@@ -1,0 +1,18 @@
+# Disha default preferences — product defaults, not a personal dossier.
+# Override per request via API `preferences` or AgentState["user_profile"].
+#
+# Empty lists / nulls mean "no hard preference" so scoring stays useful
+# without pretending we know a specific candidate.
+
+display_name: null
+skills: []
+target_cities: []
+target_roles: []
+experience_years: null
+min_base_salary_inr: null
+prefer_remote: true
+willing_to_relocate: true
+# Optional soft filters (empty by default). Domain exclusions for the
+# product still live in the guardrail agent, not here.
+excluded_keywords: []
+excluded_domains: []

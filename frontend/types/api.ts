@@ -51,12 +51,27 @@ export type Priority = "high" | "medium" | "low"
 
 export type CompensationFit = "good" | "poor" | "below" | "unavailable"
 
+/** Optional per-request preferences (not a stored personal profile). */
+export interface UserPreferences {
+  display_name?: string | null
+  skills?: string[]
+  target_cities?: string[]
+  target_roles?: string[]
+  experience_years?: number | null
+  min_base_salary_inr?: number | null
+  prefer_remote?: boolean
+  willing_to_relocate?: boolean
+  excluded_keywords?: string[]
+  excluded_domains?: string[]
+}
+
 export interface ChatRequest {
   query: string
   user_id?: string
   session_id?: string | null
   max_iterations?: number
   stream?: boolean
+  preferences?: UserPreferences | null
 }
 
 export interface ChatResponse {

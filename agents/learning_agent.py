@@ -1,34 +1,22 @@
 """
 Disha - Learning Companion Agent
-Hyper-personalized learning roadmap for Anmol Sharma (IIT Mandi, Data Science & AI).
-Analyzes skill gaps from job specs and recommends advanced papers, courses, paradigms.
+Builds learning roadmaps from career gap signals + optional request preferences.
 """
 
 from __future__ import annotations
 
 import logging
-import time
-import os
-import yaml
 import json
 from datetime import datetime
+from typing import Any, Dict, List
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
+
 from schemas import AgentState
+from tools.profile import profile_label, resolve_profile
 
 logger = logging.getLogger("disha.agents.learning")
-
-
-# ══════════════════════════════════════════════════════════════════
-# Personal Profile - Anmol Sharma (Embedded for Learning Agent)
-# ══════════════════════════════════════════════════════════════════
-
-def load_user_profile():
-    profile_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "user_profile.yaml")
-    with open(profile_path, "r") as f:
-        return yaml.safe_load(f)
-
-USER_PROFILE = load_user_profile()
 
 
 
@@ -37,19 +25,24 @@ USER_PROFILE = load_user_profile()
 # Helper Functions
 # ══════════════════════════════════════════════════════════════════
 
-def extract_missing_skills_from_jobs(jobs: List[Dict[str, Any]]) -> Dict[str, int]:
-    """Aggregate all missing skills from career recommendations with frequency."""
-    skill_counts = {}
-    
+def extract_missing_skills_from_jobs(
+    jobs: List[Dict[str, Any]],
+    excluded_domains: List[str] | None = None,
+) -> Dict[str, int]:
+    """Aggregate missing skills from career recommendations with frequency."""
+    skill_counts: Dict[str, int] = {}
+    excluded = [e.lower() for e in (excluded_domains or []) if e]
+
     for job in jobs:
-        missing = job.get("missing_skills", [])
+        if not isinstance(job, dict):
+            continue
+        missing = job.get("missing_skills") or []
         for skill in missing:
-            skill_lower = skill.lower()
-            # Skip excluded domains
-            if any(ex in skill_lower for ex in USER_PROFILE["excluded_domains"]):
+            skill_lower = str(skill).lower()
+            if any(ex in skill_lower for ex in excluded):
                 continue
-            skill_counts[skill] = skill_counts.get(skill, 0) + 1
-    
+            skill_counts[str(skill)] = skill_counts.get(str(skill), 0) + 1
+
     return dict(sorted(skill_counts.items(), key=lambda x: x[1], reverse=True))
 
 
@@ -195,45 +188,66 @@ def build_learning_phases(
 
 def node_learning_companion(state: AgentState) -> AgentState:
     """
-    Learning Companion Agent: Analyzes skill gaps using Gemini.
+    Learning Companion: gap analysis + optional Gemini roadmap from career signals.
     """
-    logger.info("[Learning Companion] Analyzing skill gaps using Gemini LLM...")
+    profile = resolve_profile(state)
+    label = profile_label(profile)
+    logger.info("[Learning Companion] Analyzing skill gaps (%s)...", label)
     state["current_agent"] = "learning_companion"
     state["updated_at"] = datetime.now()
 
-    career_recs = state.get("career_recommendations", [])
-    if not career_recs:
+    career_recs = state.get("career_recommendations") or []
+    if not career_recs or (
+        len(career_recs) == 1 and career_recs[0].get("error")
+    ):
         logger.warning("[Learning Companion] No career recommendations to analyze")
-        state["learning_roadmap"] = {"error": "No career data available for gap analysis"}
-        return state
-
-    skill_gaps = extract_missing_skills_from_jobs(career_recs)
-    
-    if not skill_gaps:
-        logger.info("[Learning Companion] No significant skill gaps detected")
         state["learning_roadmap"] = {
-            "status": "complete",
-            "message": "Profile well-aligned with target roles.",
-            "skill_gaps": {},
+            "error": "No career data available for gap analysis"
         }
         return state
 
-    logger.info(f"[Learning Companion] Top skill gaps: {list(skill_gaps.items())[:10]}")
+    skill_gaps = extract_missing_skills_from_jobs(
+        career_recs,
+        excluded_domains=list(profile.get("excluded_domains") or []),
+    )
 
-    # Invoke Gemini
+    if not skill_gaps:
+        logger.info("[Learning Companion] No structured skill gaps detected")
+        state["learning_roadmap"] = {
+            "status": "complete",
+            "message": (
+                "No skill-gap signals from current recommendations "
+                "(often means job listings lack structured skills, "
+                "or no candidate skills were provided)."
+            ),
+            "skill_gaps": {},
+            "profile_label": label,
+        }
+        return state
+
+    logger.info("[Learning Companion] Top skill gaps: %s", list(skill_gaps.items())[:10])
+
+    # Compact prefs for the model — never dump a personal dossier by default
+    prefs_for_llm = {
+        "display_name": profile.get("display_name"),
+        "skills": profile.get("skills") or [],
+        "target_roles": profile.get("target_roles") or [],
+        "experience_years": profile.get("experience_years"),
+    }
+
     try:
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
         prompt = f"""
-You are an expert AI Career Coach for {USER_PROFILE['name']}.
-Their profile: {json.dumps(USER_PROFILE)}
+You are an expert AI career coach helping a job seeker close skill gaps.
+Optional preferences (may be empty): {json.dumps(prefs_for_llm)}
 
-They applied to several jobs and are missing these skills:
+Skill gaps observed across target roles (skill -> frequency):
 {json.dumps(skill_gaps)}
 
-Generate a personalized learning roadmap. 
-You must output ONLY raw JSON matching this schema:
+Generate a practical learning roadmap.
+Output ONLY raw JSON matching this schema:
 {{
-  "profile": {{"name": "...", "target": "..."}},
+  "profile": {{"label": "...", "target": "..."}},
   "gap_analysis": {{"top_gaps": {{"skill": count}}}},
   "paper_recommendations": [
     {{"arxiv_id": "...", "title": "...", "year": 2024, "relevance": "core", "tags": ["..."]}}
@@ -251,11 +265,12 @@ Do NOT use markdown code blocks. Output the raw JSON object.
             content = content[7:-3]
         elif content.startswith("```"):
             content = content[3:-3]
-        
+
         roadmap = json.loads(content)
         roadmap["generated_at"] = datetime.now().isoformat()
+        roadmap["profile_label"] = label
     except Exception as e:
-        logger.error(f"[Learning Companion] Failed to generate/parse LLM roadmap: {e}")
+        logger.error("[Learning Companion] Failed to generate/parse LLM roadmap: %s", e)
         roadmap = {"error": f"LLM generation failed: {str(e)}"}
 
     state["learning_roadmap"] = roadmap
