@@ -43,7 +43,8 @@ Query → Supervisor (keyword routing)
 | Learning companion | ✅ Working | Gemini gap analysis + phased roadmap |
 | FastAPI + SSE | ✅ Working | `/api/chat`, `/api/chat/stream` with jobs + recs |
 | Greenhouse + Lever tools | ✅ Working | Structured boards + normalizers |
-| Playwright + Gemini extract | ✅ Working | Secondary path for HTML career pages |
+| Query-aware board selection | ✅ Working | Company/topic/India filters choose boards; skip junk RSS on career queries |
+| Playwright + Gemini extract | ✅ Working | Only for named companies without a public board |
 | Next.js chat UI | ✅ Working | SSE chat, job cards, recommendations, dark mode |
 | pgvector schema | 🔧 Scaffold | Models + repos exist; not on the live chat path |
 | Error recovery node | 🔧 Partial | Graph node present; rarely activated by agents |
@@ -174,6 +175,7 @@ Disha/
 │   └── learning_agent.py    # Gemini learning roadmap
 ├── tools/
 │   ├── scraper_tools.py     # RSS, Playwright, Greenhouse, Lever
+│   ├── board_selection.py   # Query → ATS boards + keyword plan
 │   ├── job_normalizer.py    # ATS payloads → JobOpening dicts
 │   └── career_tools.py      # Resume evaluation (Gemini)
 ├── api/
@@ -216,6 +218,7 @@ NEXT_PUBLIC_API_URL="http://localhost:8000"
 - [x] FastAPI gateway + SSE (including structured jobs/recommendations)
 - [x] Career + financial scoring engines (India-aware)
 - [x] Greenhouse + Lever ingestion + job normalizers
+- [x] Query-aware board selection (company match, topic keywords, India soft filter)
 - [x] Playwright scraping + optional Gemini job extraction
 - [x] Gemini learning companion
 - [x] Next.js chat UI (streaming status, job list, recommendation cards)
@@ -223,7 +226,7 @@ NEXT_PUBLIC_API_URL="http://localhost:8000"
 
 ### Next
 
-- [ ] Query-aware board / company selection (less hardcoded scrape targets)
+- [ ] Expand live India ATS board coverage as more public boards are validated
 - [ ] Wire `error_log` → `error_recovery` for real fallbacks
 - [ ] Persist jobs / use pgvector on the live path when needed
 - [ ] Richer job dashboard + learning roadmap UI
