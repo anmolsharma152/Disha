@@ -403,7 +403,8 @@ def _fetch_playwright_pages(state: AgentState, urls: List[str]) -> None:
             )
         except Exception as e:
             logger.warning("[Scraper] Playwright fetch failed for %s: %s", url, e)
-            _append_error(state, "fetch_webpage_playwright", e, severity="error")
+            # Non-fatal if ATS boards still produce jobs; empty scrape is what triggers recovery
+            _append_error(state, "fetch_webpage_playwright", e, severity="warning")
 
 
 def _extract_jobs_with_gemini(state: AgentState) -> List[Dict[str, Any]]:
@@ -467,17 +468,23 @@ def node_scraper(state: AgentState) -> AgentState:
     """
     Scraper Agent: selects ATS boards from the user query, fetches jobs,
     optionally pulls RSS (financial) or Playwright pages (named companies).
+
+    When ``fallback_activated["scraper"]`` is set (error_recovery), uses a
+    broader scrape plan with relaxed filters.
     """
     query = state.get("user_query") or ""
-    plan = select_scrape_plan(query)
+    fallback = bool(state.get("fallback_activated", {}).get("scraper"))
+    plan = select_scrape_plan(query, fallback=fallback)
     logger.info(
-        "[Scraper] plan reasons=%s gh=%d lever=%d rss=%s playwright=%d keywords=%s",
+        "[Scraper] plan reasons=%s gh=%d lever=%d rss=%s playwright=%d "
+        "keywords=%s fallback=%s",
         plan.reasons,
         len(plan.greenhouse),
         len(plan.lever),
         plan.fetch_rss,
         len(plan.playwright_urls),
         plan.title_keywords,
+        fallback,
     )
 
     state["current_agent"] = "scraper"
@@ -486,6 +493,11 @@ def node_scraper(state: AgentState) -> AgentState:
     state.setdefault("raw_scraped_pages", [])
     state.setdefault("company_metrics", [])
     state.setdefault("job_openings", [])
+    state.setdefault("fallback_activated", {})
+    state.setdefault("retry_count", {})
+
+    # Count attempts for observability
+    state["retry_count"]["scraper"] = state["retry_count"].get("scraper", 0) + 1
 
     if plan.fetch_rss:
         _fetch_rss_metrics(state)
@@ -515,4 +527,22 @@ def node_scraper(state: AgentState) -> AgentState:
         other,
         plan.reasons,
     )
+
+    # Signal recovery only when this pass produced nothing useful
+    has_jobs = bool(state.get("job_openings"))
+    has_metrics = bool(state.get("company_metrics"))
+    if not has_jobs and not has_metrics:
+        state["error_log"].append({
+            "agent": "scraper",
+            "tool": "scrape_plan",
+            "error": (
+                f"No jobs or metrics after scrape "
+                f"(plan={plan.reasons}, fallback={fallback})"
+            ),
+            "timestamp": datetime.now().isoformat(),
+            "severity": "error",
+            "attempt": state["retry_count"].get("scraper", 1),
+        })
+        logger.warning("[Scraper] Empty result — recorded error for recovery routing")
+
     return state

@@ -288,6 +288,7 @@ def select_scrape_plan(
     max_greenhouse: int = 6,
     max_lever: int = 3,
     max_results_per_board: int = 20,
+    fallback: bool = False,
 ) -> ScrapePlan:
     """
     Build a scrape plan from the user query.
@@ -297,7 +298,13 @@ def select_scrape_plan(
     - Career/default → curated default India + AI boards.
     - Financial intent → RSS on; light/no ATS unless a company is named.
     - Title keywords from query used as post-fetch OR filters.
+    - fallback=True → broader board set, drop topic filters, relax India preference.
     """
+    if fallback:
+        max_greenhouse = max(max_greenhouse, 10)
+        max_lever = max(max_lever, 4)
+        max_results_per_board = max(max_results_per_board, 30)
+
     q = _normalize(query)
     plan = ScrapePlan(max_results_per_board=max_results_per_board)
     plan.title_keywords = extract_title_keywords(query)
@@ -321,9 +328,33 @@ def select_scrape_plan(
         plan.fetch_rss = financial and not (plan.greenhouse or plan.lever)
         if financial:
             plan.reasons.append("financial_with_company")
+        if fallback:
+            # Named company failed once — broaden beyond that company
+            plan.reasons.append("fallback_broaden")
+            plan.title_keywords = []
+            plan.prefer_india_locations = False
+            gh, lv = _default_career_boards(
+                prefer_india=False,
+                title_keywords=[],
+                max_greenhouse=max_greenhouse,
+                max_lever=max_lever,
+            )
+            # Keep named boards first, then defaults
+            seen_gh = {b for _, b in plan.greenhouse}
+            seen_lv = {b for _, b in plan.lever}
+            for e in gh:
+                if e.board not in seen_gh:
+                    plan.greenhouse.append((e.company, e.board))
+                    seen_gh.add(e.board)
+            for e in lv:
+                if e.board not in seen_lv:
+                    plan.lever.append((e.company, e.board))
+                    seen_lv.add(e.board)
+            plan.greenhouse = plan.greenhouse[:max_greenhouse]
+            plan.lever = plan.lever[:max_lever]
         return plan
 
-    if financial:
+    if financial and not fallback:
         plan.fetch_rss = True
         plan.reasons.append("financial_rss_only")
         # Optional light AI company scrape for "invest in Indian AI" style queries
@@ -338,7 +369,19 @@ def select_scrape_plan(
             plan.reasons.append("financial_light_ats")
         return plan
 
-    # Default career path
+    # Default career path (or full fallback career path)
+    if fallback:
+        plan.title_keywords = []
+        plan.prefer_india_locations = False
+        plan.fetch_rss = False
+        # Use most of the catalog, not only default=True
+        gh_all = list(GREENHOUSE_CATALOG)[:max_greenhouse]
+        lv_all = list(LEVER_CATALOG)[:max_lever]
+        plan.greenhouse = [(e.company, e.board) for e in gh_all]
+        plan.lever = [(e.company, e.board) for e in lv_all]
+        plan.reasons.append("fallback_career")
+        return plan
+
     gh, lv = _default_career_boards(
         prefer_india=plan.prefer_india_locations,
         title_keywords=plan.title_keywords,

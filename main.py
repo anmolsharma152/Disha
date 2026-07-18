@@ -222,47 +222,86 @@ def node_synthesize(state: AgentState) -> AgentState:
 
 def node_error_recovery(state: AgentState) -> AgentState:
     """
-    Error Recovery Node: Activated when a primary agent fails.
-    Implements fallback pipeline: Playwright -> BeautifulSoup -> Alternative APIs -> Cached Data.
+    Error Recovery Node: Activated when a primary agent fails or returns empty.
+
+    Scraper fallback: mark fallback_activated and re-run scraper with a broader plan.
+    Other agents: skip to the next pipeline stage so the user still gets an answer.
     """
     logger.warning("[Error Recovery] Attempting fallback pipeline...")
     state["current_agent"] = "error_recovery"
     state["updated_at"] = datetime.now()
+    state.setdefault("fallback_activated", {})
+    state.setdefault("error_log", [])
 
     error_log = state.get("error_log", [])
-    last_error = error_log[-1] if error_log else {"agent": "unknown", "error": "unknown"}
-
-    # Clear error_log so supervisor doesn't re-route here
-    state["error_log"] = []
-
-    # Determine which stage failed
+    last_error = error_log[-1] if error_log else {"agent": "scraper", "error": "unknown"}
     failed_agent = last_error.get("agent", "scraper")
 
-    if failed_agent == "scraper" and not state.get("fallback_activated", {}).get("scraper"):
-        # Try BeautifulSoup fallback
-        logger.info("[Error Recovery] Trying BeautifulSoup + httpx fallback...")
-        state["fallback_activated"]["scraper"] = True
-        state["routing_key"] = "scraper"
-        logger.info("[Error Recovery] Fallback activated -> routing to Scraper")
+    # Preserve history but clear active errors so supervisor won't re-enter immediately
+    recovered = list(error_log)
+    state["error_log"] = []
+    state.setdefault("knowledge_gaps", [])
+    if recovered:
+        state["knowledge_gaps"].append(
+            f"recovered_from:{failed_agent}:{recovered[-1].get('error', '')[:120]}"
+        )
+
+    if failed_agent == "scraper":
+        if not state["fallback_activated"].get("scraper"):
+            state["fallback_activated"]["scraper"] = True
+            state["routing_key"] = "scraper"
+            logger.info(
+                "[Error Recovery] Scraper fallback activated "
+                "(broader boards, relaxed filters) -> scraper"
+            )
+        else:
+            # Already tried broad scrape — continue pipeline with empty jobs
+            state["routing_key"] = "synthesize"
+            logger.warning(
+                "[Error Recovery] Scraper fallback already used -> synthesize"
+            )
 
     elif failed_agent == "financial_analyst":
-        logger.info("[Error Recovery] Using heuristic financial scoring...")
         state["fallback_activated"]["financial_analyst"] = True
+        # Minimal stub so synthesize/career can proceed
+        if not state.get("financial_analysis"):
+            state["financial_analysis"] = {
+                "rating": "UNAVAILABLE",
+                "thesis": "Financial analysis skipped after agent failure.",
+                "scores": {},
+                "risk_flags": [],
+                "fallback": True,
+            }
         state["routing_key"] = "career_strategy"
+        logger.info("[Error Recovery] Financial failed -> career_strategy")
 
     elif failed_agent == "career_strategy":
-        logger.info("[Error Recovery] Using basic keyword matching...")
         state["fallback_activated"]["career_strategy"] = True
-        state["routing_key"] = "learning_companion"
+        if not state.get("career_recommendations"):
+            state["career_recommendations"] = []
+        query = (state.get("user_query") or "").lower()
+        if any(kw in query for kw in ["learn", "roadmap", "paper", "research", "study"]):
+            state["routing_key"] = "learning_companion"
+        else:
+            state["routing_key"] = "synthesize"
+        logger.info(
+            "[Error Recovery] Career failed -> %s", state["routing_key"]
+        )
 
     elif failed_agent == "learning_companion":
-        logger.info("[Error Recovery] Skipping learning -> synthesize")
         state["fallback_activated"]["learning_companion"] = True
+        if not state.get("learning_roadmap"):
+            state["learning_roadmap"] = {
+                "summary": "Learning roadmap unavailable after agent failure.",
+                "phases": [],
+                "fallback": True,
+            }
         state["routing_key"] = "synthesize"
+        logger.info("[Error Recovery] Learning failed -> synthesize")
 
     else:
-        logger.error("[Error Recovery] Unknown failure point -> END")
-        state["routing_key"] = "end"
+        logger.error("[Error Recovery] Unknown failure (%s) -> synthesize", failed_agent)
+        state["routing_key"] = "synthesize"
 
     return state
 
@@ -307,12 +346,27 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # All sub-agents route back to supervisor (except career/financial/learning go to guardrail first)
+    # Specialists return to supervisor for the next routing decision
     workflow.add_edge("scraper", "supervisor")
     workflow.add_edge("financial_analyst", "supervisor")
     workflow.add_edge("career_strategy", "supervisor")
     workflow.add_edge("learning_companion", "supervisor")
-    workflow.add_edge("error_recovery", "supervisor")
+
+    # Recovery routes directly to the chosen next node (must not re-enter
+    # supervisor with routing_key=scraper or it looks like "scrape finished")
+    workflow.add_conditional_edges(
+        "error_recovery",
+        should_continue,
+        {
+            "scraper": "scraper",
+            "financial_analyst": "financial_analyst",
+            "career_strategy": "career_strategy",
+            "learning_companion": "learning_companion",
+            "error_recovery": "error_recovery",
+            "synthesize": "guardrail",
+            "end": END,
+        },
+    )
 
     # Guardrail always goes to synthesize
     workflow.add_edge("guardrail", "synthesize")

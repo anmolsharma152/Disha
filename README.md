@@ -47,7 +47,7 @@ Query → Supervisor (keyword routing)
 | Playwright + Gemini extract | ✅ Working | Only for named companies without a public board |
 | Next.js chat UI | ✅ Working | SSE chat, job cards, recommendations, dark mode |
 | pgvector schema | 🔧 Scaffold | Models + repos exist; not on the live chat path |
-| Error recovery node | 🔧 Partial | Graph node present; rarely activated by agents |
+| Error recovery node | ✅ Working | Empty scrape → broader fallback plan; then continue / synthesize |
 | Resume evaluation tool | 🔧 Partial | Gemini tool exists; not wired into the graph |
 
 ---
