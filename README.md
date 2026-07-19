@@ -4,6 +4,8 @@
 
 Disha is a multi-agent system that finds roles, scores them against a personal profile, analyzes companies, and can propose learning roadmaps — not generic chat, but structured matches with compensation fit, skill overlap, and explicit reasoning.
 
+**Portfolio:** Disha owns *job market fit* only. Not ops (Ozyman), not FSRS (Scholar-Loop), not creative synthesis (IdeaForge). See [docs/portfolio-product-boundaries.md](./docs/portfolio-product-boundaries.md).
+
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/built%20with-LangGraph-orange)](https://github.com/langchain-ai/langgraph)
 [![FastAPI](https://img.shields.io/badge/api-FastAPI-teal)](https://fastapi.tiangolo.com/)
