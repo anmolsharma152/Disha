@@ -330,8 +330,6 @@ class AgentState(TypedDict, total=False):
     # ─── Extracted Data (append-only) ───
     company_metrics: List[Dict[str, Any]]  # CompanyMetrics model_dump()
     job_openings: List[Dict[str, Any]]     # JobOpening model_dump()
-    raw_scraped_pages: List[Dict[str, Any]]  # {url, html, markdown, metadata}
-
     # ─── Analysis Outputs ───
     financial_analysis: Dict[str, Any]  # Per-company scores, risk flags, ratios
     career_recommendations: List[Dict[str, Any]]  # Ranked job matches with reasoning
@@ -341,13 +339,8 @@ class AgentState(TypedDict, total=False):
     # ─── Resilience & Error Handling ───
     error_log: List[Dict[str, Any]]  # {agent, error, timestamp, attempt}
     retry_count: Dict[str, int]  # {agent_name: attempts}
-    circuit_breakers: Dict[str, bool]  # {domain: is_open}
     fallback_activated: Dict[str, bool]  # {pipeline_stage: used_fallback}
     guardrail_stats: Dict[str, int]  # {jobs_dropped, companies_dropped}
-
-    # ─── RAG & Knowledge ───
-    retrieved_chunks: List[Dict[str, Any]]  # Vector search results
-    knowledge_gaps: List[str]  # Identified missing info for next iteration
 
     # ─── Final Output ───
     final_answer: Optional[str]
@@ -357,8 +350,6 @@ class AgentState(TypedDict, total=False):
     # ─── Metadata ───
     started_at: datetime
     updated_at: datetime
-    total_tokens: int
-    total_cost_usd: float
 
 
 # ──────────────────────────────────────────────────────────────
@@ -396,23 +387,17 @@ def create_initial_state(
         delegation_history=[],
         company_metrics=[],
         job_openings=[],
-        raw_scraped_pages=[],
         financial_analysis={},
         career_recommendations=[],
         market_intelligence={},
         error_log=[],
         retry_count={},
-        circuit_breakers={},
         fallback_activated={},
-        retrieved_chunks=[],
-        knowledge_gaps=[],
         final_answer=None,
         answer_confidence=0.0,
         citations=[],
         started_at=now,
         updated_at=now,
-        total_tokens=0,
-        total_cost_usd=0.0,
     )
 
 

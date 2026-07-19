@@ -86,8 +86,6 @@ class ChatResponse(BaseModel):
     citations: list
     routing_key: str
     current_agent: Optional[str]
-    total_tokens: int
-    total_cost_usd: float
     completed_at: str
     job_openings: list[dict] = Field(default_factory=list, description="Structured job opening data")
     career_recommendations: list[dict] = Field(default_factory=list, description="Structured career match data")
@@ -253,8 +251,6 @@ async def chat_endpoint(request: ChatRequest):
             citations=result.get("citations", []),
             routing_key=result.get("routing_key", "unknown"),
             current_agent=result.get("current_agent"),
-            total_tokens=result.get("total_tokens", 0),
-            total_cost_usd=result.get("total_cost_usd", 0.0),
             completed_at=datetime.utcnow().isoformat(),
             job_openings=result.get("job_openings", []),
             career_recommendations=result.get("career_recommendations", []),

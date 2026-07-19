@@ -289,11 +289,7 @@ def node_error_recovery(state: AgentState) -> AgentState:
     # Preserve history but clear active errors so supervisor won't re-enter immediately
     recovered = list(error_log)
     state["error_log"] = []
-    state.setdefault("knowledge_gaps", [])
-    if recovered:
-        state["knowledge_gaps"].append(
-            f"recovered_from:{failed_agent}:{recovered[-1].get('error', '')[:120]}"
-        )
+    state["error_log"] = []
 
     if failed_agent == "scraper":
         if not state["fallback_activated"].get("scraper"):
