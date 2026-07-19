@@ -44,6 +44,7 @@ Query → Supervisor (keyword routing)
 | FastAPI + SSE | ✅ Working | `/api/chat`, `/api/chat/stream` with jobs + recs |
 | Greenhouse + Lever tools | ✅ Working | Structured boards + normalizers |
 | Query-aware board selection | ✅ Working | Company/topic/India filters choose boards; skip junk RSS on career queries |
+| We Work Remotely + YC jobs | ✅ Working | RSS + Work-at-a-Startup page; 12h file cache + dedupe |
 | Playwright + Gemini extract | ✅ Working | Only for named companies without a public board |
 | Next.js chat UI | ✅ Working | SSE chat, job cards, recommendations, dark mode |
 | pgvector schema | 🔧 Scaffold | Models + repos exist; not on the live chat path |
@@ -177,7 +178,9 @@ Disha/
 ├── tools/
 │   ├── scraper_tools.py     # RSS, Playwright, Greenhouse, Lever
 │   ├── board_selection.py   # Query → ATS boards + keyword plan
-│   ├── job_normalizer.py    # ATS payloads → JobOpening dicts
+│   ├── job_normalizer.py    # ATS / WWR / YC payloads → JobOpening
+│   ├── job_cache.py         # File cache + dedupe for job fetches
+│   ├── sources/             # WWR (RSS), YC Work-at-a-Startup, …
 │   └── career_tools.py      # Resume evaluation (Gemini)
 ├── api/
 │   └── server.py            # FastAPI + SSE

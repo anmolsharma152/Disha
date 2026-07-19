@@ -308,6 +308,168 @@ def normalize_lever_job(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ──────────────────────────────────────────────────────────────
+# We Work Remotely
+# ──────────────────────────────────────────────────────────────
+
+WWR_DOMAIN = "weworkremotely.com"
+
+
+def normalize_wwr_job(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a WWR RSS-derived raw job dict."""
+    from tools.skill_lexicon import extract_skills_from_text
+
+    title = (raw.get("title") or "").strip()
+    company = (raw.get("company") or "").strip() or "Unknown"
+    description = raw.get("description") or title
+    location_raw = raw.get("headquarters") or raw.get("region") or "Remote"
+    link = raw.get("link") or ""
+
+    location_components = parse_location(location_raw)
+    experience = infer_experience_level(title)
+    remote = RemotePolicy.REMOTE  # WWR is remote-first
+    # Prefer remote policy unless HQ implies onsite-only language
+    loc_lower = location_raw.lower()
+    if "hybrid" in loc_lower:
+        remote = RemotePolicy.HYBRID
+
+    skills = list(raw.get("skills") or [])
+    extracted = extract_skills_from_text(f"{title}\n{description}", limit=30)
+    # Prefer lexicon extract (cleaner than WWR SEO tags)
+    tech = extracted or skills
+
+    country = location_components.get("country")
+    if country and len(str(country)) > 2:
+        # Keep full string in location_raw only; schema wants ISO-ish 2-letter codes
+        country = None
+
+    posted = raw.get("published")
+    # JobOpening expects datetime/date — leave None if RSS string is unparsed
+    posted_date = None
+    if posted:
+        try:
+            from email.utils import parsedate_to_datetime
+
+            posted_date = parsedate_to_datetime(str(posted))
+        except Exception:
+            posted_date = None
+
+    return {
+        "company_name": company,
+        "title": title,
+        "location_raw": location_raw,
+        "location_city": location_components.get("city"),
+        "location_state": location_components.get("state"),
+        "location_country": country,
+        "remote_policy": remote.value,
+        "experience_level": experience.value,
+        "department": (raw.get("category") or None),
+        "tech_stack": list(tech),
+        "skills_required": list(tech),
+        "skills_preferred": [],
+        "payout_min": None,
+        "payout_max": None,
+        "currency": "USD",
+        "compensation_source": "estimated",
+        "compensation_confidence": 0.2,
+        "description_raw": description,
+        "source_url": link,
+        "source_domain": WWR_DOMAIN,
+        "scraper_source": ScraperSource.WE_WORK_REMOTELY.value,
+        "posted_date": posted_date,
+        "is_active": True,
+        "application_url": link or None,
+    }
+
+
+# ──────────────────────────────────────────────────────────────
+# Y Combinator Work at a Startup
+# ──────────────────────────────────────────────────────────────
+
+YC_DOMAIN = "workatastartup.com"
+
+
+def normalize_yc_job(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a YC Work-at-a-Startup job object from the public jobs page."""
+    from tools.skill_lexicon import extract_skills_from_text
+
+    title = (raw.get("title") or "").strip()
+    company = (raw.get("companyName") or raw.get("company") or "").strip() or "YC Startup"
+    location_raw = raw.get("location") or "Remote"
+    role_type = raw.get("roleType") or ""
+    salary = raw.get("salary")
+    job_id = raw.get("id")
+    slug = raw.get("companySlug") or ""
+    batch = raw.get("companyBatch") or ""
+    one_liner = raw.get("companyOneLiner") or ""
+    apply_url = raw.get("applyUrl") or ""
+    source_url = (
+        f"https://www.workatastartup.com/jobs/{job_id}" if job_id else apply_url
+    )
+
+    description = " ".join(
+        x for x in (title, role_type, one_liner, f"YC batch {batch}" if batch else "") if x
+    )
+    tech = extract_skills_from_text(f"{title} {role_type} {one_liner}", limit=20)
+    location_components = parse_location(location_raw)
+    experience = infer_experience_level(title)
+    remote = infer_remote_policy(location_raw, title)
+
+    # Parse salary strings like "$150K - $220K" or "₹3M - ₹7.5M INR" lightly
+    payout_min = payout_max = None
+    currency = "USD"
+    if isinstance(salary, str) and salary.strip():
+        s = salary.strip()
+        if "₹" in s or "INR" in s.upper():
+            currency = "INR"
+        elif "€" in s or "EUR" in s.upper():
+            currency = "EUR"
+        elif "CAD" in s.upper():
+            currency = "CAD"
+        nums = re.findall(r"(\d+(?:\.\d+)?)\s*([KMB])?", s.replace(",", ""))
+        vals = []
+        for n, suf in nums:
+            v = float(n)
+            if suf.upper() == "K":
+                v *= 1_000
+            elif suf.upper() == "M":
+                v *= 1_000_000
+            elif suf.upper() == "B":
+                v *= 1_000_000_000
+            vals.append(int(v))
+        if len(vals) >= 2:
+            payout_min, payout_max = vals[0], vals[1]
+        elif len(vals) == 1:
+            payout_min = payout_max = vals[0]
+
+    return {
+        "company_name": company,
+        "title": title,
+        "location_raw": location_raw,
+        "location_city": location_components.get("city"),
+        "location_state": location_components.get("state"),
+        "location_country": _resolve_country(location_raw, location_components.get("country")),
+        "remote_policy": remote.value,
+        "experience_level": experience.value,
+        "department": role_type or None,
+        "tech_stack": list(tech),
+        "skills_required": list(tech),
+        "skills_preferred": [],
+        "payout_min": payout_min,
+        "payout_max": payout_max,
+        "currency": currency,
+        "compensation_source": "posted" if payout_min else "estimated",
+        "compensation_confidence": 0.6 if payout_min else 0.2,
+        "description_raw": description,
+        "source_url": source_url,
+        "source_domain": YC_DOMAIN,
+        "scraper_source": ScraperSource.YC_JOBS.value,
+        "posted_date": None,
+        "is_active": True,
+        "application_url": apply_url or source_url or None,
+    }
+
+
+# ──────────────────────────────────────────────────────────────
 # Validation Helper
 # ──────────────────────────────────────────────────────────────
 

@@ -57,6 +57,11 @@ class ScraperSource(str, Enum):
     SEC_FILING = "sec_filing"
     FINANCIAL_API = "financial_api"
     MANUAL = "manual"
+    WE_WORK_REMOTELY = "we_work_remotely"
+    YC_JOBS = "yc_jobs"
+    WELLFOUND = "wellfound"
+    OTTA = "otta"
+    NAUKRI = "naukri"
 
 
 # ──────────────────────────────────────────────────────────────

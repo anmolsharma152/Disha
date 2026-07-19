@@ -154,6 +154,11 @@ class ScrapePlan:
     max_results_per_board: int = 20
     prefer_india_locations: bool = True
     reasons: List[str] = field(default_factory=list)
+    # External boards (WWR / YC / future Wellfound)
+    fetch_wwr: bool = False
+    wwr_categories: List[str] = field(default_factory=list)
+    fetch_yc: bool = False
+    external_max_results: int = 40
 
     @property
     def total_boards(self) -> int:
@@ -354,6 +359,37 @@ def select_scrape_plan(
             plan.lever = plan.lever[:max_lever]
         return plan
 
+    def _enable_external_sources(p: ScrapePlan) -> None:
+        """Turn on WWR / YC based on query intent (career paths)."""
+        remote_intent = any(
+            t in q
+            for t in ("remote", "wwr", "we work remotely", "work from home", "wfh")
+        )
+        startup_intent = any(
+            t in q for t in ("startup", "yc", "y combinator", "wellfound", "otta")
+        )
+        tech_intent = bool(p.title_keywords) or any(
+            t in q
+            for t in (
+                "engineer", "developer", "software", "backend", "frontend",
+                "ml", "ai", "llm", "data", "devops", "sre", "role", "job", "hiring",
+            )
+        )
+        # Default career searches: always include WWR + YC as first-class sources
+        if tech_intent or remote_intent or startup_intent or not (
+            mentioned_gh or mentioned_lv
+        ):
+            p.fetch_wwr = True
+            p.wwr_categories = ["programming", "devops"]
+            p.reasons.append("source_wwr")
+            p.fetch_yc = True
+            p.reasons.append("source_yc")
+        if remote_intent:
+            p.prefer_india_locations = False  # remote boards are global by nature
+            p.reasons.append("remote_intent")
+        if startup_intent:
+            p.reasons.append("startup_intent")
+
     if financial and not fallback:
         plan.fetch_rss = True
         plan.reasons.append("financial_rss_only")
@@ -379,6 +415,9 @@ def select_scrape_plan(
         lv_all = list(LEVER_CATALOG)[:max_lever]
         plan.greenhouse = [(e.company, e.board) for e in gh_all]
         plan.lever = [(e.company, e.board) for e in lv_all]
+        plan.fetch_wwr = True
+        plan.wwr_categories = ["programming", "devops"]
+        plan.fetch_yc = True
         plan.reasons.append("fallback_career")
         return plan
 
@@ -396,6 +435,7 @@ def select_scrape_plan(
         plan.reasons.append("topic_filters:" + ",".join(plan.title_keywords[:5]))
     if plan.prefer_india_locations:
         plan.reasons.append("india_focus")
+    _enable_external_sources(plan)
     return plan
 
 

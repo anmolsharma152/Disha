@@ -37,6 +37,8 @@ from tools.board_selection import (
     select_scrape_plan,
 )
 from tools.profile import resolve_profile
+from tools.job_cache import dedupe_jobs
+from tools.sources import fetch_wwr_jobs, fetch_yc_jobs
 
 logger = logging.getLogger("disha.agents.scraper")
 
@@ -545,20 +547,58 @@ def node_scraper(state: AgentState) -> AgentState:
     new_job_dicts.extend(_fetch_lever(plan))
     new_job_dicts.extend(_extract_jobs_with_gemini(state))
 
+    # External first-class boards (WWR, YC) — cached
+    ext_kw = list(plan.title_keywords[:6]) if plan.title_keywords else None
+    if plan.fetch_wwr:
+        try:
+            wwr = fetch_wwr_jobs(
+                categories=plan.wwr_categories or ["programming", "devops"],
+                keywords=ext_kw,
+                max_results=plan.external_max_results,
+                use_cache=True,
+            )
+            new_job_dicts.extend(wwr)
+            logger.info("[Scraper] WWR contributed %d jobs", len(wwr))
+        except Exception as e:
+            logger.warning("[Scraper] WWR fetch failed: %s", e)
+            _append_error(state, "fetch_wwr", e, severity="warning")
+
+    if plan.fetch_yc:
+        try:
+            yc = fetch_yc_jobs(
+                keywords=ext_kw,
+                max_results=plan.external_max_results,
+                prefer_engineering=True,
+                use_cache=True,
+            )
+            new_job_dicts.extend(yc)
+            logger.info("[Scraper] YC contributed %d jobs", len(yc))
+        except Exception as e:
+            logger.warning("[Scraper] YC fetch failed: %s", e)
+            _append_error(state, "fetch_yc", e, severity="warning")
+
     filtered = _apply_query_filters(new_job_dicts, plan)
     filtered = filter_jobs(filtered)
+    filtered = dedupe_jobs(filtered)
 
     existing = state.get("job_openings", [])
     state["job_openings"] = existing + filtered
 
-    gh_count = sum(1 for j in filtered if j.get("scraper_source") == "ats_greenhouse")
-    lv_count = sum(1 for j in filtered if j.get("scraper_source") == "ats_lever")
-    other = len(filtered) - gh_count - lv_count
+    def _count(src: str) -> int:
+        return sum(1 for j in filtered if j.get("scraper_source") == src)
+
+    gh_count = _count("ats_greenhouse")
+    lv_count = _count("ats_lever")
+    wwr_count = _count("we_work_remotely")
+    yc_count = _count("yc_jobs")
+    other = len(filtered) - gh_count - lv_count - wwr_count - yc_count
     logger.info(
-        "[Scraper] Added %d jobs (%d Greenhouse, %d Lever, %d other) plan=%s",
+        "[Scraper] Added %d jobs (GH=%d Lever=%d WWR=%d YC=%d other=%d) plan=%s",
         len(filtered),
         gh_count,
         lv_count,
+        wwr_count,
+        yc_count,
         other,
         plan.reasons,
     )
