@@ -5,12 +5,8 @@ import type { JobOpening } from "@/types/api"
 import { JobCard } from "./JobCard"
 import { Button } from "@/components/ui/button"
 
-const PREVIEW = 6
+const PREVIEW = 8
 
-/**
- * Secondary list of raw openings. Collapsed by default when many roles,
- * so ranked matches stay the primary focus.
- */
 function JobList({
   jobs,
   defaultOpen = false,
@@ -31,7 +27,7 @@ function JobList({
       <button
         type="button"
         onClick={() => setSectionOpen((v) => !v)}
-        className="flex w-full items-center justify-between rounded-lg border bg-muted/30 px-3.5 py-3 text-left transition-colors hover:bg-muted/50"
+        className="flex w-full items-center justify-between rounded-xl border bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50"
       >
         <div>
           <h2 className="text-sm font-semibold tracking-tight">
@@ -39,17 +35,17 @@ function JobList({
           </h2>
           <p className="text-xs text-muted-foreground">
             {jobs.length} role{jobs.length === 1 ? "" : "s"} from this search
-            {!sectionOpen ? " · tap to browse" : ""}
+            {!sectionOpen ? " · expand to browse" : ""}
           </p>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs font-medium text-muted-foreground">
           {sectionOpen ? "Hide" : "Show"}
         </span>
       </button>
 
       {sectionOpen && (
-        <div className="space-y-3 pl-0.5">
-          <div className="flex flex-col gap-2">
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {visible.map((job, i) => (
               <JobCard
                 key={job.job_id || job.source_url || `job-${i}`}
@@ -62,7 +58,7 @@ function JobList({
               type="button"
               variant="outline"
               size="sm"
-              className="w-full"
+              className="w-full sm:w-auto"
               onClick={() => setShowAll(true)}
             >
               Show {hidden} more
@@ -73,7 +69,7 @@ function JobList({
               type="button"
               variant="ghost"
               size="sm"
-              className="w-full"
+              className="w-full sm:w-auto"
               onClick={() => setShowAll(false)}
             >
               Show fewer

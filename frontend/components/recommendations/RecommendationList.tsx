@@ -5,7 +5,7 @@ import type { CareerRecommendation } from "@/types/api"
 import { RecommendationCard } from "./RecommendationCard"
 import { Button } from "@/components/ui/button"
 
-const PREVIEW = 5
+const PREVIEW = 6
 
 function RecommendationList({
   recommendations: recs,
@@ -26,21 +26,18 @@ function RecommendationList({
 
   return (
     <section className="space-y-4">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">
-            Top matches
-          </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Ranked for this query
-            {valid.length > PREVIEW
-              ? ` · showing ${visible.length} of ${valid.length}`
-              : ` · ${valid.length} role${valid.length === 1 ? "" : "s"}`}
-          </p>
-        </div>
+      <div>
+        <h2 className="text-base font-semibold tracking-tight">Top matches</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Ranked for this query
+          {valid.length > PREVIEW
+            ? ` · showing ${visible.length} of ${valid.length}`
+            : ` · ${valid.length} role${valid.length === 1 ? "" : "s"}`}
+        </p>
       </div>
 
-      <div className="flex flex-col gap-3">
+      {/* 1 col mobile · 2 cols on md when wide left pane */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
         {visible.map((rec, i) => (
           <RecommendationCard
             key={rec.job_id || `${rec.company}-${rec.title}-${i}`}
@@ -55,7 +52,7 @@ function RecommendationList({
           type="button"
           variant="outline"
           size="sm"
-          className="w-full"
+          className="w-full sm:w-auto"
           onClick={() => setExpanded(true)}
         >
           Show {hidden} more match{hidden === 1 ? "" : "es"}
@@ -66,7 +63,7 @@ function RecommendationList({
           type="button"
           variant="ghost"
           size="sm"
-          className="w-full"
+          className="w-full sm:w-auto"
           onClick={() => setExpanded(false)}
         >
           Show fewer

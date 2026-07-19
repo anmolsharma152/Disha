@@ -61,7 +61,7 @@ function RecommendationCard({
   return (
     <article
       className={cn(
-        "rounded-xl border bg-card p-4 shadow-sm transition-colors",
+        "flex h-full flex-col rounded-xl border bg-card p-4 shadow-sm transition-colors",
         "hover:border-foreground/20"
       )}
     >
