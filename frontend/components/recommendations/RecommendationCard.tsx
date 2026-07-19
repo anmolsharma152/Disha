@@ -47,12 +47,15 @@ function displayCompensation(rec: CareerRecommendation): string | null {
   return null
 }
 
-function displayFit(label: string | boolean | null | undefined): string | null {
+function displayFit(label: unknown): string | null {
   if (label === null || label === undefined || label === "") {
     return null
   }
   if (typeof label === "boolean") {
     return label ? "Remote OK" : "Remote N/A"
+  }
+  if (typeof label !== "string") {
+    return String(label)
   }
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
