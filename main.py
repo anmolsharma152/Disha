@@ -144,25 +144,74 @@ def node_synthesize(state: AgentState) -> AgentState:
 
     # Career Recommendations
     if career and isinstance(career[0], dict) and "match_score" in career[0]:
-        sections.append(f"\\n## Top Career Matches ({len(career)} roles analyzed)")
+        sections.append(f"\n## Top Career Matches ({len(career)} roles analyzed)")
         for i, c in enumerate(career[:5], 1):
-            sections.append(f"\\n### {i}. {c['title']} @ {c['company']} -- **{c['match_score']}/100** ({c['priority'].upper()})")
-            sections.append(f"- **Location**: {c['location']} | **Remote**: {c['remote_policy']}")
-            comp = c.get('compensation', {})
-            base_mid = comp.get('base_midpoint', 0) or 0
-            total_est = comp.get('total_estimate', 0) or 0
-            display_lpa = comp.get('display_lpa', round(base_mid / 100000, 1))
-            display_crores = comp.get('display_crores', round(base_mid / 10000000, 2))
-            currency = comp.get('currency', 'INR')
-            if base_mid >= 10000000:
-                sections.append(f"- **Base**: ₹{display_crores:.2f} Cr | **Est. Total**: ₹{round(total_est / 10000000, 2)} Cr")
+            title = c.get("title") or "Untitled"
+            company = c.get("company") or "Unknown"
+            score = c.get("match_score") or 0
+            priority = (c.get("priority") or "low").upper()
+            sections.append(
+                f"\n### {i}. {title} @ {company} — **{score}/100** ({priority})"
+            )
+            loc = c.get("location") or "N/A"
+            remote = c.get("remote_policy") or "unknown"
+            sections.append(f"- **Location**: {loc} | **Remote**: {remote}")
+
+            comp = c.get("compensation") or {}
+            base_mid = comp.get("base_midpoint") or 0
+            total_est = comp.get("total_estimate") or 0
+            display_lpa = comp.get("display_lpa")
+            display_crores = comp.get("display_crores")
+            if display_lpa is None and base_mid:
+                display_lpa = round(base_mid / 100000, 1)
+            if display_crores is None and base_mid:
+                display_crores = round(base_mid / 10000000, 2)
+            fit = comp.get("fit") or "unavailable"
+
+            if base_mid and base_mid >= 10000000:
+                sections.append(
+                    f"- **Base**: ₹{(display_crores or 0):.2f} Cr | "
+                    f"**Est. Total**: ₹{round(total_est / 10000000, 2)} Cr"
+                    if total_est
+                    else f"- **Base**: ₹{(display_crores or 0):.2f} Cr"
+                )
+            elif base_mid or display_lpa:
+                total_part = (
+                    f" | **Est. Total**: ₹{round(total_est / 100000, 1)} LPA"
+                    if total_est
+                    else ""
+                )
+                sections.append(
+                    f"- **Base**: ₹{(display_lpa or 0):.1f} LPA{total_part} "
+                    f"(fit: {fit})"
+                )
             else:
-                sections.append(f"- **Base**: ₹{display_lpa:.1f} LPA | **Est. Total**: ₹{round(total_est / 100000, 1)} LPA")
-            sections.append(f"- **Skill Match**: {c['skill_match_pct']}% ({', '.join(c['matched_skills'][:5])})")
-            if c['missing_skills']:
-                sections.append(f"- **Gaps**: {', '.join(c['missing_skills'][:3])}")
-            sections.append(f"- **Visa**: {'Not Required' if c['visa_fit'] else 'Required'} | **Experience Fit**: {c['experience_fit']}")
-            sections.append(f"- **Reasoning**: {c['reasoning']}")
+                sections.append(f"- **Compensation**: Not posted (fit: {fit})")
+
+            matched = c.get("matched_skills") or []
+            missing = c.get("missing_skills") or []
+            skill_pct = c.get("skill_match_pct")
+            skill_status = c.get("skill_match_status") or ""
+            if skill_pct is not None:
+                matched_txt = ", ".join(matched[:5]) if matched else "none listed"
+                sections.append(f"- **Skill Match**: {skill_pct}% ({matched_txt})")
+            if skill_status and skill_status != "matched":
+                sections.append(f"- **Skill status**: {skill_status}")
+            if missing:
+                sections.append(f"- **Gaps**: {', '.join(missing[:3])}")
+
+            exp_fit = c.get("experience_fit") or "unknown"
+            visa = c.get("visa_fit")
+            if visa is None:
+                sections.append(f"- **Experience Fit**: {exp_fit}")
+            else:
+                visa_txt = "Not Required" if visa else "Required"
+                sections.append(
+                    f"- **Visa**: {visa_txt} | **Experience Fit**: {exp_fit}"
+                )
+
+            if c.get("reasoning"):
+                sections.append(f"- **Reasoning**: {c['reasoning']}")
             if c.get("application_url"):
                 sections.append(f"- **Apply**: {c['application_url']}")
             citations.append({"source": c.get("source_url"), "type": "job_posting"})

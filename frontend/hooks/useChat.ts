@@ -76,11 +76,16 @@ export function useChat(): UseChatReturn {
         if (event.routing_key) {
           setRoutingKey(event.routing_key)
         }
-        if (event.job_openings) {
+        if (Array.isArray(event.job_openings)) {
           setJobOpenings(event.job_openings)
         }
-        if (event.career_recommendations) {
-          setCareerRecommendations(event.career_recommendations)
+        if (Array.isArray(event.career_recommendations)) {
+          // Drop non-recommendation payloads (e.g. {error: ...})
+          setCareerRecommendations(
+            event.career_recommendations.filter(
+              (r) => r && typeof r === "object" && "title" in r
+            )
+          )
         }
         if (event.final_answer) {
           setFinalAnswer(event.final_answer)
@@ -93,7 +98,10 @@ export function useChat(): UseChatReturn {
       ) {
         return
       }
-      setError(err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      // Surface backend SSE errors clearly (e.g. synthesize crash)
+      setError(message)
+      console.error("[useChat]", err)
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false)

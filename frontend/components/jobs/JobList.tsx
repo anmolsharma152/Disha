@@ -4,7 +4,7 @@ import type { JobOpening } from "@/types/api"
 import { JobCard } from "./JobCard"
 
 function JobList({ jobs }: { jobs: JobOpening[] }) {
-  if (jobs.length === 0) return null
+  if (!jobs?.length) return null
 
   return (
     <section className="space-y-3">
@@ -15,8 +15,11 @@ function JobList({ jobs }: { jobs: JobOpening[] }) {
         </span>
       </div>
       <div className="space-y-2">
-        {jobs.map((job) => (
-          <JobCard key={job.job_id} job={job} />
+        {jobs.map((job, i) => (
+          <JobCard
+            key={job.job_id || job.source_url || `job-${i}`}
+            job={job}
+          />
         ))}
       </div>
     </section>

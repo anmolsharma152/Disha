@@ -66,9 +66,13 @@ function formatCompensation(job: JobOpening): string | null {
 function JobCard({ job }: { job: JobOpening }) {
   const comp = formatCompensation(job)
   const location = formatLocation(job)
+  const techStack = job.tech_stack ?? []
+  const remotePolicy = job.remote_policy ?? "unknown"
+  const expLevel = job.experience_level ?? "unknown"
+  const empType = job.employment_type ?? "full_time"
 
   const badges: React.ReactNode[] = []
-  const remoteLabel = REMOTE_LABELS[job.remote_policy]
+  const remoteLabel = REMOTE_LABELS[remotePolicy]
   if (remoteLabel) {
     badges.push(
       <Badge key="remote" variant="outline" className="text-[10px]">
@@ -76,7 +80,7 @@ function JobCard({ job }: { job: JobOpening }) {
       </Badge>
     )
   }
-  const expLabel = EXP_LABELS[job.experience_level]
+  const expLabel = EXP_LABELS[expLevel]
   if (expLabel) {
     badges.push(
       <Badge key="exp" variant="secondary" className="text-[10px]">
@@ -84,7 +88,7 @@ function JobCard({ job }: { job: JobOpening }) {
       </Badge>
     )
   }
-  const empLabel = EMP_TYPE_LABELS[job.employment_type]
+  const empLabel = EMP_TYPE_LABELS[empType]
   if (empLabel) {
     badges.push(
       <Badge key="emp" variant="ghost" className="text-[10px]">
@@ -93,13 +97,15 @@ function JobCard({ job }: { job: JobOpening }) {
     )
   }
 
+  const linkHref = job.application_url || job.source_url || null
+
   return (
     <Card size="sm">
       <CardHeader>
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {job.company_name}
+          {job.company_name || "Company"}
         </div>
-        <CardTitle>{job.title}</CardTitle>
+        <CardTitle>{job.title || "Untitled role"}</CardTitle>
         {badges.length > 0 && (
           <div className="flex flex-wrap gap-1">{badges}</div>
         )}
@@ -111,9 +117,9 @@ function JobCard({ job }: { job: JobOpening }) {
         {comp && (
           <p className="text-xs font-medium text-foreground">{comp}</p>
         )}
-        {job.tech_stack.length > 0 && (
+        {techStack.length > 0 && (
           <div className="flex flex-wrap gap-1">
-            {job.tech_stack.slice(0, 5).map((tech) => (
+            {techStack.slice(0, 5).map((tech) => (
               <span
                 key={tech}
                 className="inline-flex h-5 items-center rounded bg-muted px-1.5 text-[10px] font-medium text-muted-foreground"
@@ -121,37 +127,30 @@ function JobCard({ job }: { job: JobOpening }) {
                 {tech}
               </span>
             ))}
-            {job.tech_stack.length > 5 && (
+            {techStack.length > 5 && (
               <span className="inline-flex h-5 items-center text-[10px] text-muted-foreground">
-                +{job.tech_stack.length - 5}
+                +{techStack.length - 5}
               </span>
             )}
           </div>
         )}
       </CardContent>
       <CardFooter className="gap-2">
-        {job.application_url ? (
+        {linkHref ? (
           <a
-            href={job.application_url}
+            href={linkHref}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs font-medium text-primary hover:underline"
           >
-            Apply
+            {job.application_url ? "Apply" : "View Job"}
           </a>
-        ) : (
-          <a
-            href={job.source_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs font-medium text-primary hover:underline"
-          >
-            View Job
-          </a>
-        )}
-        <span className="text-[10px] text-muted-foreground">
-          {job.source_domain}
-        </span>
+        ) : null}
+        {job.source_domain ? (
+          <span className="text-[10px] text-muted-foreground">
+            {job.source_domain}
+          </span>
+        ) : null}
       </CardFooter>
     </Card>
   )

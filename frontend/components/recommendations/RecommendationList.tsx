@@ -8,20 +8,25 @@ function RecommendationList({
 }: {
   recommendations: CareerRecommendation[]
 }) {
-  if (recs.length === 0) return null
+  if (!recs?.length) return null
+
+  // Skip error-only payloads from empty career agent
+  const valid = recs.filter((r) => r && !("error" in r && r.error) && r.title)
+
+  if (valid.length === 0) return null
 
   return (
     <section className="space-y-3">
       <div className="flex items-baseline gap-2">
         <h2 className="text-sm font-semibold">Career Recommendations</h2>
         <span className="text-xs text-muted-foreground">
-          {recs.length} found
+          {valid.length} found
         </span>
       </div>
       <div className="space-y-2">
-        {recs.map((rec) => (
+        {valid.map((rec, i) => (
           <RecommendationCard
-            key={rec.job_id}
+            key={rec.job_id || `${rec.company}-${rec.title}-${i}`}
             recommendation={rec}
           />
         ))}
