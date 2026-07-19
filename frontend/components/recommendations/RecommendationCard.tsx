@@ -1,234 +1,153 @@
 "use client"
 
+import { useState } from "react"
 import type { CareerRecommendation } from "@/types/api"
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 
-const PRIORITY_STYLES: Record<string, string> = {
-  high: "border-l-2 border-l-amber-500",
-  medium: "border-l-2 border-l-transparent",
-  low: "border-l-2 border-l-transparent opacity-60",
-}
-
-const FIT_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  good: "default",
-  poor: "secondary",
-  below: "destructive",
-  unavailable: "outline",
-}
-
-function displayLocation(rec: CareerRecommendation): string | null {
-  if (rec.location && rec.location !== "None, None" && rec.location !== "None") {
+function locationLine(rec: CareerRecommendation): string | null {
+  if (
+    rec.location &&
+    rec.location !== "None, None" &&
+    rec.location !== "None"
+  ) {
     return rec.location
   }
   return null
 }
 
-function displayCompensation(rec: CareerRecommendation): string | null {
+function compLine(rec: CareerRecommendation): string | null {
   const c = rec.compensation
   if (!c) return null
-  const crores = c.display_crores
-  const lpa = c.display_lpa
-  if (typeof crores === "number" && crores > 0) {
-    return `₹${crores.toFixed(2)}Cr`
+  if (typeof c.display_lpa === "number" && c.display_lpa > 0) {
+    return `₹${c.display_lpa.toFixed(1)} LPA`
   }
-  if (typeof lpa === "number" && lpa > 0) {
-    return `₹${lpa.toFixed(1)}L`
-  }
-  if (c.fit === "unavailable") {
-    return "Comp not posted"
+  if (typeof c.display_crores === "number" && c.display_crores > 0) {
+    return `₹${c.display_crores.toFixed(2)} Cr`
   }
   return null
 }
 
-function displayFit(label: unknown): string | null {
-  if (label === null || label === undefined || label === "") {
-    return null
-  }
-  if (typeof label === "boolean") {
-    return label ? "Remote OK" : "Remote N/A"
-  }
-  if (typeof label !== "string") {
-    return String(label)
-  }
-  return label.charAt(0).toUpperCase() + label.slice(1)
+function scoreTone(score: number): string {
+  if (score >= 70) return "text-emerald-600 dark:text-emerald-400"
+  if (score >= 50) return "text-amber-600 dark:text-amber-400"
+  return "text-muted-foreground"
 }
 
 function RecommendationCard({
   recommendation: rec,
+  rank,
 }: {
   recommendation: CareerRecommendation
+  rank?: number
 }) {
-  const priorityClass = PRIORITY_STYLES[rec.priority ?? "low"] ?? ""
-  const comp = displayCompensation(rec)
-  const location = displayLocation(rec)
-  const matched = rec.matched_skills ?? []
-  const missing = rec.missing_skills ?? []
+  const [open, setOpen] = useState(false)
   const score =
     typeof rec.match_score === "number" && Number.isFinite(rec.match_score)
       ? Math.round(rec.match_score)
       : 0
-  const skillPct =
-    typeof rec.skill_match_pct === "number" &&
-    Number.isFinite(rec.skill_match_pct)
-      ? Math.round(rec.skill_match_pct)
+  const loc = locationLine(rec)
+  const comp = compLine(rec)
+  const matched = rec.matched_skills ?? []
+  const missing = rec.missing_skills ?? []
+  const link = rec.application_url || rec.source_url || null
+  const remote =
+    rec.remote_policy && rec.remote_policy !== "unknown"
+      ? rec.remote_policy.replace(/_/g, " ")
       : null
 
-  const showRemoteBadge =
-    !!rec.remote_policy && rec.remote_policy !== "unknown"
-
-  const expLabel = displayFit(rec.experience_fit)
-  const remoteLabel = displayFit(rec.remote_fit)
-  const visaLabel =
-    rec.visa_fit === undefined || rec.visa_fit === null
-      ? null
-      : displayFit(rec.visa_fit)
+  const meta = [loc, remote, comp].filter(Boolean).join(" · ")
 
   return (
-    <Card size="sm" className={priorityClass}>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {rec.company || "Company"}
-            </div>
-            <CardTitle>{rec.title || "Untitled role"}</CardTitle>
-          </div>
-          <div className="shrink-0 text-right">
-            <div className="text-lg font-bold leading-none tabular-nums">
-              {score}%
-            </div>
-            <div className="text-[10px] text-muted-foreground">match</div>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {showRemoteBadge && (
-            <Badge variant="outline" className="text-[10px]">
-              {rec.remote_policy === "remote"
-                ? "Remote"
-                : rec.remote_policy === "hybrid"
-                  ? "Hybrid"
-                  : rec.remote_policy === "onsite"
-                    ? "On-site"
-                    : rec.remote_policy}
-            </Badge>
-          )}
-          {skillPct !== null && (
-            <Badge variant="secondary" className="text-[10px]">
-              Skills: {skillPct}%
-            </Badge>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {location && (
-          <p className="text-xs text-muted-foreground">{location}</p>
+    <article
+      className={cn(
+        "rounded-xl border bg-card p-4 shadow-sm transition-colors",
+        "hover:border-foreground/20"
+      )}
+    >
+      <div className="flex items-start gap-3">
+        {typeof rank === "number" && (
+          <span className="mt-0.5 w-6 shrink-0 text-center text-xs font-medium tabular-nums text-muted-foreground">
+            {rank}
+          </span>
         )}
-
-        {comp && (
-          <div className="flex items-center gap-3 text-xs">
-            <span className="font-medium">{comp}</span>
-            {rec.compensation?.fit && (
-              <Badge
-                variant={FIT_VARIANTS[rec.compensation.fit] ?? "outline"}
-                className="text-[10px]"
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-muted-foreground">
+                {rec.company || "Company"}
+              </p>
+              <h3 className="text-sm font-semibold leading-snug tracking-tight">
+                {rec.title || "Untitled role"}
+              </h3>
+            </div>
+            <div className="shrink-0 text-right">
+              <p
+                className={cn(
+                  "text-base font-semibold tabular-nums leading-none",
+                  scoreTone(score)
+                )}
               >
-                {rec.compensation.fit}
-              </Badge>
-            )}
-          </div>
-        )}
-
-        {(expLabel || remoteLabel || visaLabel) && (
-          <div className="flex flex-wrap gap-1 text-[10px]">
-            {expLabel && (
-              <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
-                {expLabel}
-              </span>
-            )}
-            {remoteLabel && (
-              <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
-                {remoteLabel}
-              </span>
-            )}
-            {visaLabel && (
-              <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
-                {visaLabel}
-              </span>
-            )}
-          </div>
-        )}
-
-        {matched.length > 0 && (
-          <div>
-            <span className="text-[10px] font-medium text-muted-foreground">
-              Matched skills
-            </span>
-            <div className="mt-0.5 flex flex-wrap gap-1">
-              {matched.map((skill) => (
-                <span
-                  key={skill}
-                  className="inline-flex h-5 items-center rounded bg-primary/10 px-1.5 text-[10px] font-medium text-primary"
-                >
-                  {skill}
-                </span>
-              ))}
+                {score}
+              </p>
+              <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                score
+              </p>
             </div>
           </div>
-        )}
 
-        {missing.length > 0 && (
-          <div>
-            <span className="text-[10px] font-medium text-muted-foreground">
-              Missing skills
-            </span>
-            <div className="mt-0.5 flex flex-wrap gap-1">
-              {missing.map((skill) => (
-                <span
-                  key={skill}
-                  className="inline-flex h-5 items-center rounded bg-muted px-1.5 text-[10px] text-muted-foreground line-through"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
+          {meta && (
+            <p className="text-xs text-muted-foreground capitalize">{meta}</p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
+            {link && (
+              <a
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                {rec.application_url ? "Apply →" : "View posting →"}
+              </a>
+            )}
+            {(rec.reasoning || matched.length > 0 || missing.length > 0) && (
+              <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                {open ? "Hide details" : "Why this match?"}
+              </button>
+            )}
           </div>
-        )}
 
-        {rec.reasoning && (
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            {rec.reasoning}
-          </p>
-        )}
-      </CardContent>
-      <CardFooter className="gap-2">
-        {rec.application_url ? (
-          <a
-            href={rec.application_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs font-medium text-primary hover:underline"
-          >
-            Apply
-          </a>
-        ) : rec.source_url ? (
-          <a
-            href={rec.source_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs font-medium text-primary hover:underline"
-          >
-            View Details
-          </a>
-        ) : null}
-      </CardFooter>
-    </Card>
+          {open && (
+            <div className="mt-3 space-y-2 border-t pt-3">
+              {rec.reasoning && (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {rec.reasoning}
+                </p>
+              )}
+              {matched.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {matched.slice(0, 8).map((s) => (
+                    <Badge key={s} variant="secondary" className="text-[10px]">
+                      {s}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {missing.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Gaps: {missing.slice(0, 5).join(", ")}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
   )
 }
 
