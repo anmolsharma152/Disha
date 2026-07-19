@@ -58,3 +58,8 @@ temp/
 # Local virtualenvs / tooling artifacts
 .venv/
 .playwright-mcp/
+
+# Personal uploads
+Resume.pdf
+*.pdf
+!docs/**/*.pdf
