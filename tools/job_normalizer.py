@@ -211,6 +211,12 @@ def normalize_greenhouse_job(raw: Dict[str, Any]) -> Dict[str, Any]:
 
     country_code = _resolve_country(location_raw, location_components.get("country"))
 
+    # Enrich skills from title + description (no LLM) so matching is usable
+    from tools.skill_lexicon import extract_skills_from_text
+
+    skill_blob = f"{title}\n{department}\n{description_text}"
+    extracted_skills = extract_skills_from_text(skill_blob, limit=30)
+
     job_dict: Dict[str, Any] = {
         "company_name": "",  # overwritten by caller with actual company name
         "title": title,
@@ -221,8 +227,8 @@ def normalize_greenhouse_job(raw: Dict[str, Any]) -> Dict[str, Any]:
         "remote_policy": remote.value,
         "experience_level": experience.value,
         "department": department or None,
-        "tech_stack": [],
-        "skills_required": [],
+        "tech_stack": list(extracted_skills),
+        "skills_required": list(extracted_skills),
         "skills_preferred": [],
         "payout_min": None,
         "payout_max": None,
@@ -266,6 +272,10 @@ def normalize_lever_job(raw: Dict[str, Any]) -> Dict[str, Any]:
     experience = infer_experience_level(title)
     remote = infer_remote_policy(location_raw, title)
     country_code = _resolve_country(location_raw, location_components.get("country"))
+    from tools.skill_lexicon import extract_skills_from_text
+
+    desc = raw.get("description_text") or raw.get("description") or title
+    extracted_skills = extract_skills_from_text(f"{title}\n{department}\n{desc}", limit=25)
 
     job_dict: Dict[str, Any] = {
         "company_name": "",
@@ -277,15 +287,15 @@ def normalize_lever_job(raw: Dict[str, Any]) -> Dict[str, Any]:
         "remote_policy": remote.value,
         "experience_level": experience.value,
         "department": department or None,
-        "tech_stack": [],
-        "skills_required": [],
+        "tech_stack": list(extracted_skills),
+        "skills_required": list(extracted_skills),
         "skills_preferred": [],
         "payout_min": None,
         "payout_max": None,
         "currency": INDIA_CURRENCY if country_code == INDIA_COUNTRY else "USD",
         "compensation_source": "estimated",
         "compensation_confidence": 0.2,
-        "description_raw": title,
+        "description_raw": desc if isinstance(desc, str) else title,
         "source_url": absolute_url,
         "source_domain": LEVER_DOMAIN,
         "scraper_source": ScraperSource.ATS_LEVER.value,

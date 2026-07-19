@@ -480,30 +480,34 @@ def node_scraper(state: AgentState) -> AgentState:
 
     plan = select_scrape_plan(query, fallback=fallback)
 
-    # Ground filters with resume memory (skills / target roles) without hardcoding
+    # Ground with target roles only (NOT every skill — that matches sales JDs too)
     if not fallback:
-        grounded: List[str] = []
-        for role in (profile.get("target_roles") or [])[:4]:
-            if role and str(role).lower() not in grounded:
-                grounded.append(str(role).lower())
-        for skill in (profile.get("skills") or [])[:8]:
-            s = str(skill).lower().strip()
-            if s and s not in grounded and len(s) > 1:
-                grounded.append(s)
-        if grounded:
-            # Prefer query keywords; append profile terms for broader recall
+        role_terms: List[str] = []
+        for role in (profile.get("target_roles") or [])[:5]:
+            r = str(role).lower().strip()
+            if r and r not in role_terms:
+                role_terms.append(r)
+                # Also add meaningful tokens: "ai engineer" -> engineer, ai
+                for tok in r.replace("/", " ").split():
+                    if len(tok) > 2 and tok not in role_terms and tok not in {
+                        "and", "the", "for", "with"
+                    }:
+                        role_terms.append(tok)
+        if role_terms:
             existing = {k.lower() for k in plan.title_keywords}
-            for g in grounded:
+            for g in role_terms:
                 if g not in existing:
                     plan.title_keywords.append(g)
-            plan.reasons.append("grounded_resume_memory")
-            # Soft India cities from profile when user has them
-            cities = [c.lower() for c in (profile.get("target_cities") or []) if c]
-            if cities and any(
-                c in {"bangalore", "bengaluru", "delhi", "pune", "hyderabad", "mumbai", "india", "remote"}
-                for c in cities
-            ):
-                plan.prefer_india_locations = True
+            plan.reasons.append("grounded_target_roles")
+        cities = [c.lower() for c in (profile.get("target_cities") or []) if c]
+        if cities and any(
+            c in {
+                "bangalore", "bengaluru", "delhi", "pune", "hyderabad",
+                "mumbai", "jaipur", "india", "remote",
+            }
+            for c in cities
+        ):
+            plan.prefer_india_locations = True
 
     logger.info(
         "[Scraper] plan reasons=%s gh=%d lever=%d rss=%s playwright=%d "

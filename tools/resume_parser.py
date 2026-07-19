@@ -253,7 +253,10 @@ def extract_profile_from_resume_text(text: str) -> Tuple[Dict[str, Any], str]:
         "education": extracted.education,
         "summary": extracted.summary,
     }
-    # Drop empty lists for cities if none — keep as empty for neutral location filter
+    # Prefer deterministic date-range years over LLM guess
+    from tools.experience import apply_deterministic_experience
+
+    profile = apply_deterministic_experience(profile, cleaned)
     return profile, method
 
 

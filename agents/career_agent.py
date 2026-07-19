@@ -1,11 +1,14 @@
 """
 Disha - Career Strategy Agent
-Scores jobs against request-time preferences (optional). No personal dossier.
+
+Ranks jobs like a job board: title/role relevance first, then skills,
+location, and experience — and drops obvious non-tech noise for tech seekers.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Set
@@ -17,6 +20,12 @@ from tools.profile import (
     has_skill_preferences,
     profile_label,
     resolve_profile,
+)
+from tools.skill_lexicon import (
+    extract_skills_from_text,
+    is_likely_non_tech_title,
+    is_likely_tech_title,
+    title_tokens,
 )
 
 logger = logging.getLogger("disha.agents.career")
@@ -31,128 +40,251 @@ def is_location_match(
     remote_policy: str,
     profile: Mapping[str, Any],
 ) -> bool:
-    """If no target cities configured, do not hard-filter by location."""
     if not has_location_preferences(profile):
         return True
-
     loc = normalize_location(job_location)
     policy = (remote_policy or "").lower()
-
     if policy in ("remote", "remote_friendly", "remote india"):
         return True
-
     for city in profile.get("target_cities") or []:
         if city and city.lower() in loc:
             return True
+    # India-wide profile cities shouldn't kill remote-global if "remote" listed
+    if any(c.lower() == "remote" for c in (profile.get("target_cities") or [])):
+        if "remote" in loc:
+            return True
     return False
 
 
-def is_excluded(job: Dict[str, Any], profile: Mapping[str, Any]) -> bool:
-    """Optional profile keyword exclusions (title only). Guardrail handles product defaults."""
+def is_excluded(job: Dict[str, Any], profile: Mapping[str, Any], query: str) -> bool:
     title = (job.get("title") or "").lower()
+    q = (query or "").lower()
+
     for excluded in profile.get("excluded_keywords") or []:
         if excluded and excluded.lower() in title:
             return True
+
+    # Drop non-tech noise unless the user explicitly searches for it
+    sales_intent = any(
+        w in q for w in ("sales", "account executive", "recruiter", "marketing", "hr ")
+    )
+    if not sales_intent and is_likely_non_tech_title(title):
+        return True
+
+    # If seeker has tech target roles / skills, require tech-ish titles
+    tech_seeker = bool(profile.get("skills")) or any(
+        any(
+            k in str(r).lower()
+            for k in ("engineer", "developer", "ml", "ai", "data", "software", "sde")
+        )
+        for r in (profile.get("target_roles") or [])
+    )
+    if tech_seeker and not sales_intent and not is_likely_tech_title(title):
+        # Allow if strong skill overlap later — but default drop pure non-tech
+        return True
+
     return False
+
+
+def _job_skill_set(job: Dict[str, Any]) -> Set[str]:
+    skills: Set[str] = set()
+    for key in ("tech_stack", "skills_required", "skills_preferred"):
+        for s in job.get(key) or []:
+            if s:
+                skills.add(str(s).lower())
+    # Fallback: mine description if still empty
+    if not skills:
+        blob = f"{job.get('title') or ''}\n{job.get('description_raw') or ''}"
+        for s in extract_skills_from_text(blob, limit=30):
+            skills.add(s.lower())
+            # also write back for UI
+        if skills:
+            labels = extract_skills_from_text(blob, limit=30)
+            job["tech_stack"] = labels
+            job["skills_required"] = labels
+    return skills
 
 
 def calculate_skill_match(
     job: Dict[str, Any],
     profile: Mapping[str, Any],
 ) -> tuple[float, Set[str], Set[str], str]:
-    """
-    Returns (match_pct, matched, missing, status).
-
-    status: "matched" | "no_user_skills" | "no_job_skills" | "unknown"
-    Without user skills we do not invent a 0% match against the job.
-    """
     user_skills = {s.lower() for s in (profile.get("skills") or []) if s}
-
-    job_tech = {s.lower() for s in (job.get("tech_stack") or []) if s}
-    job_skills = {s.lower() for s in (job.get("skills_required") or []) if s}
-    job_preferred = {s.lower() for s in (job.get("skills_preferred") or []) if s}
-    all_job_skills = job_tech | job_skills | job_preferred
+    all_job_skills = _job_skill_set(job)
 
     if not user_skills and not all_job_skills:
-        return 50.0, set(), set(), "unknown"
+        return 0.0, set(), set(), "unknown"
     if not user_skills:
-        # Prefer jobs that at least declare a stack (slight boost via neutral band)
-        return 50.0, set(), set(all_job_skills), "no_user_skills"
+        return 0.0, set(), set(all_job_skills), "no_user_skills"
     if not all_job_skills:
-        return 50.0, set(), set(), "no_job_skills"
+        # Still try title token overlap with user skills
+        title = (job.get("title") or "").lower()
+        matched = {s for s in user_skills if s in title or any(t in s for t in title.split())}
+        if matched:
+            return 25.0, matched, set(), "title_only"
+        return 0.0, set(), set(), "no_job_skills"
 
     matched = user_skills & all_job_skills
-    missing = all_job_skills - user_skills
-    match_pct = round(len(matched) / len(all_job_skills) * 100, 1)
-    return match_pct, matched, missing, "matched"
+    # Partial: user skill contained in job skill string or vice versa
+    if not matched:
+        for us in user_skills:
+            for js in all_job_skills:
+                if us in js or js in us:
+                    matched.add(us)
+    missing = all_job_skills - matched
+    # Score relative to user skills coverage of job (job board style)
+    # + how many of user's top skills appear
+    if not all_job_skills:
+        match_pct = 0.0
+    else:
+        coverage = len(matched) / max(len(all_job_skills), 1)
+        user_hit = len(matched) / max(len(user_skills), 1)
+        match_pct = round(100.0 * (0.65 * coverage + 0.35 * min(user_hit * 3, 1.0)), 1)
+    return match_pct, matched, missing, "matched" if matched else "no_overlap"
+
+
+def calculate_title_relevance(
+    job: Dict[str, Any],
+    profile: Mapping[str, Any],
+    query: str,
+) -> float:
+    """0-100: how well title matches query + target roles (what Naukri does well)."""
+    title = (job.get("title") or "").lower()
+    if not title:
+        return 0.0
+
+    score = 0.0
+    q_tokens = title_tokens(query)
+    t_tokens = title_tokens(title)
+
+    if q_tokens and t_tokens:
+        overlap = q_tokens & t_tokens
+        score += 55.0 * (len(overlap) / max(len(q_tokens), 1))
+        # Bonus for multi-token hits
+        if len(overlap) >= 2:
+            score += 10.0
+
+    # Target role phrases
+    roles = [str(r).lower() for r in (profile.get("target_roles") or []) if r]
+    best_role = 0.0
+    for role in roles:
+        r_toks = title_tokens(role)
+        if not r_toks:
+            continue
+        ov = r_toks & t_tokens
+        best_role = max(best_role, 40.0 * (len(ov) / max(len(r_toks), 1)))
+        if role in title:
+            best_role = max(best_role, 45.0)
+    score += best_role
+
+    # Generic tech title floor
+    if is_likely_tech_title(title):
+        score += 8.0
+    if is_likely_non_tech_title(title):
+        score -= 40.0
+
+    return max(0.0, min(100.0, round(score, 1)))
+
+
+def calculate_location_score(
+    job: Dict[str, Any],
+    profile: Mapping[str, Any],
+) -> float:
+    loc = normalize_location(
+        f"{job.get('location_raw') or ''} {job.get('location_city') or ''} "
+        f"{job.get('location_country') or ''}"
+    )
+    policy = (job.get("remote_policy") or "").lower()
+    cities = [c.lower() for c in (profile.get("target_cities") or []) if c]
+
+    if not cities:
+        # Mild preference for India / remote when no prefs
+        if job.get("location_country") in ("IN", "India") or "india" in loc:
+            return 70.0
+        if policy in ("remote", "remote_friendly"):
+            return 65.0
+        return 50.0
+
+    if any(c in loc for c in cities):
+        return 100.0
+    if policy in ("remote", "remote_friendly") and (
+        "remote" in cities or profile.get("prefer_remote")
+    ):
+        return 85.0
+    if job.get("location_country") in ("IN", "India") or "india" in loc:
+        if any(
+            c in {"bangalore", "bengaluru", "delhi", "pune", "hyderabad", "mumbai", "jaipur", "india"}
+            for c in cities
+        ):
+            return 75.0
+    # Harsh penalty for US/EU-only when user is India-based
+    us_eu = any(
+        x in loc
+        for x in (
+            "united states", " usa", "san francisco", "new york", "seattle",
+            "london", "denmark", "sweden", "netherlands", "germany",
+        )
+    )
+    if us_eu and any(
+        c in {"jaipur", "bangalore", "bengaluru", "delhi", "pune", "india", "hyderabad", "mumbai"}
+        for c in cities
+    ):
+        return 15.0
+    return 35.0
 
 
 def calculate_comp_fit(
     job: Dict[str, Any],
     profile: Mapping[str, Any],
 ) -> tuple[str, Optional[bool]]:
-    """
-    Returns (fit, meets_min).
-    fit: above | below | unavailable
-    meets_min: True/False/None when unknown
-    """
     payout_mid = job.get("payout_midpoint") or 0
     currency = (job.get("currency") or "INR").upper()
-
     if not payout_mid:
         return "unavailable", None
-
-    if currency == "USD":
-        payout_mid_inr = payout_mid * 83
-    else:
-        payout_mid_inr = payout_mid
-
+    payout_mid_inr = payout_mid * 83 if currency == "USD" else payout_mid
     if not has_salary_floor(profile):
         return "unavailable", None
-
     floor = int(profile["min_base_salary_inr"])
-    meets_min = payout_mid_inr >= floor
-    return ("above" if meets_min else "below"), meets_min
+    meets = payout_mid_inr >= floor
+    return ("above" if meets else "below"), meets
 
 
 def _experience_index(years: Optional[float]) -> int:
-    """Map years of experience to coarse level index."""
     if years is None:
-        return 2  # mid default only used when comparing unknowns carefully
+        return 2
     if years < 1:
-        return 1  # entry
+        return 1
     if years < 3:
-        return 2  # junior
+        return 2
     if years < 6:
-        return 3  # mid
+        return 3
     if years < 10:
-        return 4  # senior
-    return 5  # staff+
+        return 4
+    return 5
 
 
 def calculate_experience_fit(job: Dict[str, Any], profile: Mapping[str, Any]) -> str:
     exp_level = (job.get("experience_level") or "unknown").lower()
     exp_order = [
-        "intern",
-        "entry",
-        "junior",
-        "mid",
-        "senior",
-        "staff",
-        "principal",
-        "director",
-        "vp",
-        "c_level",
+        "intern", "entry", "junior", "mid", "senior", "staff",
+        "principal", "director", "vp", "c_level",
     ]
-    if exp_level == "unknown" or profile.get("experience_years") is None:
+    years = profile.get("experience_years")
+    if exp_level == "unknown" or years is None:
+        # Infer from title keywords vs years
+        title = (job.get("title") or "").lower()
+        if years is not None:
+            if years < 2 and any(w in title for w in ("staff", "principal", "director", "head of", "senior manager")):
+                return "stretch"
+            if years < 3 and "senior" in title and "junior" not in title:
+                return "stretch"
+            if years >= 1 and any(w in title for w in ("intern",)):
+                return "overqualified"
         return "unknown"
 
-    user_exp_idx = _experience_index(profile.get("experience_years"))
+    user_exp_idx = _experience_index(float(years))
     job_exp_idx = exp_order.index(exp_level) if exp_level in exp_order else 2
-    # Align junior-ish index onto exp_order: intern=0 entry=1 junior=2 mid=3...
-    # _experience_index returns 1=entry-ish ... map to exp_order roughly
     user_on_order = min(user_exp_idx, len(exp_order) - 1)
-
     diff = user_on_order - job_exp_idx
     if diff >= 2:
         return "overqualified"
@@ -164,51 +296,55 @@ def calculate_experience_fit(job: Dict[str, Any], profile: Mapping[str, Any]) ->
 
 
 def calculate_overall_score(
-    match_pct: float,
+    title_score: float,
+    skill_pct: float,
     skill_status: str,
-    comp_fit: str,
-    remote_fit: bool,
+    location_score: float,
     exp_fit: str,
-    prefer_remote: bool,
-    willing_to_relocate: bool,
+    comp_fit: str,
 ) -> float:
-    """Weighted score that stays neutral when preferences are unset."""
-    if skill_status in ("no_user_skills", "no_job_skills", "unknown"):
-        skill_component = 50.0
+    """
+    Job-board style weights:
+      title/role  40%
+      skills      35%
+      location    15%
+      experience  10%
+    Comp is informational only unless floor is set (small nudge).
+    """
+    if skill_status in ("no_user_skills", "unknown"):
+        skill_component = 20.0
+    elif skill_status in ("no_job_skills", "title_only"):
+        skill_component = max(skill_pct, 15.0)
+    elif skill_status == "no_overlap":
+        skill_component = 5.0
     else:
-        skill_component = match_pct
-
-    if comp_fit == "above":
-        comp_component = 100.0
-    elif comp_fit == "below":
-        comp_component = 40.0
-    else:
-        comp_component = 55.0  # unavailable / no floor set
-
-    if prefer_remote:
-        remote_component = 100.0 if remote_fit else 40.0
-    else:
-        remote_component = 70.0
+        skill_component = skill_pct
 
     if exp_fit == "match":
         exp_component = 100.0
     elif exp_fit == "stretch":
-        exp_component = 70.0
+        exp_component = 55.0
     elif exp_fit == "overqualified":
-        exp_component = 50.0
+        exp_component = 40.0
     else:
-        exp_component = 60.0  # unknown
-
-    relocate_component = 60.0 if willing_to_relocate else 40.0
+        exp_component = 60.0
 
     score = (
-        skill_component * 0.40
-        + comp_component * 0.20
-        + remote_component * 0.15
-        + exp_component * 0.15
-        + relocate_component * 0.10
+        title_score * 0.40
+        + skill_component * 0.35
+        + location_score * 0.15
+        + exp_component * 0.10
     )
-    return round(score, 1)
+    if comp_fit == "below":
+        score -= 5.0
+    elif comp_fit == "above":
+        score += 3.0
+
+    # Hard floor: weak title match cannot rank high even with random skill hits
+    if title_score < 20:
+        score = min(score, 45.0)
+
+    return round(max(0.0, min(100.0, score)), 1)
 
 
 def _format_location(job: Dict[str, Any]) -> str:
@@ -228,19 +364,15 @@ def _format_location(job: Dict[str, Any]) -> str:
 
 
 def node_career_strategy(state: AgentState) -> AgentState:
-    """
-    Rank job openings using optional request-time preferences.
-    Without a personal skill/salary profile, ranks with neutral skill/comp bands
-    and optional soft signals (remote, experience labels).
-    """
     profile = resolve_profile(state)
     label = profile_label(profile)
-    logger.info("[Career Strategy] Scoring jobs with %s", label)
+    query = state.get("user_query") or ""
+    logger.info("[Career Strategy] Ranking with %s", label)
     state["current_agent"] = "career_strategy"
     state["updated_at"] = datetime.now()
-    state["user_profile"] = profile  # echo resolved prefs for downstream agents
+    state["user_profile"] = profile
 
-    time.sleep(0.05)
+    time.sleep(0.02)
 
     jobs = state.get("job_openings") or []
     if not jobs:
@@ -249,59 +381,54 @@ def node_career_strategy(state: AgentState) -> AgentState:
         return state
 
     recommendations: List[Dict[str, Any]] = []
-    prefer_remote = bool(profile.get("prefer_remote", True))
-    willing = bool(profile.get("willing_to_relocate", True))
+    dropped = 0
 
     for job in jobs:
-        if is_excluded(job, profile):
+        if is_excluded(job, profile, query):
+            dropped += 1
             continue
+        if not is_location_match(
+            job.get("location_raw", "") or "",
+            job.get("remote_policy", "") or "",
+            profile,
+        ):
+            # Soft: keep but will score low on location — only hard-drop if cities set and remote not ok
+            if has_location_preferences(profile) and (job.get("remote_policy") or "") not in (
+                "remote",
+                "remote_friendly",
+            ):
+                # still allow India remote-ish; if truly mismatched, skip
+                loc_score_pre = calculate_location_score(job, profile)
+                if loc_score_pre < 20:
+                    dropped += 1
+                    continue
 
-        location = job.get("location_raw", "") or ""
-        remote_policy = job.get("remote_policy", "") or ""
-        if not is_location_match(location, remote_policy, profile):
-            continue
-
-        match_pct, matched, missing, skill_status = calculate_skill_match(job, profile)
-        comp_fit, meets_min = calculate_comp_fit(job, profile)
-        remote_fit = remote_policy in ("remote", "remote_friendly", "remote india")
+        title_score = calculate_title_relevance(job, profile, query)
+        skill_pct, matched, missing, skill_status = calculate_skill_match(job, profile)
+        loc_score = calculate_location_score(job, profile)
         exp_fit = calculate_experience_fit(job, profile)
+        comp_fit, meets_min = calculate_comp_fit(job, profile)
         score = calculate_overall_score(
-            match_pct,
-            skill_status,
-            comp_fit,
-            remote_fit,
-            exp_fit,
-            prefer_remote=prefer_remote,
-            willing_to_relocate=willing,
+            title_score, skill_pct, skill_status, loc_score, exp_fit, comp_fit
         )
 
-        if score >= 80:
+        # Drop junk that still slipped through with terrible dual scores
+        # Keep clear tech titles even when the query is vague / no skills yet
+        if title_score < 12 and skill_pct < 15 and not is_likely_tech_title(
+            job.get("title") or ""
+        ):
+            dropped += 1
+            continue
+
+        if score >= 75:
             priority = "high"
-        elif score >= 60:
+        elif score >= 55:
             priority = "medium"
         else:
             priority = "low"
 
-        floor = profile.get("min_base_salary_inr")
-        if comp_fit == "unavailable":
-            comp_reason = "Compensation not posted or no salary floor set"
-        elif floor:
-            comp_reason = (
-                f"Compensation {comp_fit} floor "
-                f"({int(floor) / 1e5:.0f} LPA)"
-            )
-        else:
-            comp_reason = f"Compensation {comp_fit}"
-
-        if skill_status == "no_user_skills":
-            skill_reason = "No candidate skills provided — skill match neutral"
-        elif skill_status == "no_job_skills":
-            skill_reason = "Job listing has no structured skills — skill match neutral"
-        else:
-            skill_reason = (
-                f"Skill overlap: {match_pct}% "
-                f"({', '.join(list(matched)[:5]) or 'none'})"
-            )
+        remote_policy = job.get("remote_policy") or "unknown"
+        remote_fit = remote_policy in ("remote", "remote_friendly", "remote india")
 
         rec = {
             "job_id": job.get("job_id"),
@@ -309,11 +436,13 @@ def node_career_strategy(state: AgentState) -> AgentState:
             "title": job.get("title"),
             "title_normalized": job.get("title_normalized"),
             "location": _format_location(job),
-            "remote_policy": job.get("remote_policy"),
+            "remote_policy": remote_policy,
             "match_score": score,
-            "skill_match_pct": match_pct,
+            "title_relevance": title_score,
+            "skill_match_pct": skill_pct,
             "skill_match_status": skill_status,
-            "matched_skills": sorted(matched),
+            "location_score": loc_score,
+            "matched_skills": sorted(matched)[:12],
             "missing_skills": sorted(missing)[:8],
             "compensation": {
                 "base_midpoint": job.get("payout_midpoint"),
@@ -333,9 +462,9 @@ def node_career_strategy(state: AgentState) -> AgentState:
             "application_url": job.get("application_url"),
             "source_url": job.get("source_url"),
             "reasoning": (
-                f"{skill_reason}. {comp_reason}. "
-                f"Remote: {'yes' if remote_fit else 'no'}. "
-                f"Experience: {exp_fit}."
+                f"Title fit {title_score:.0f}/100. "
+                f"Skills {skill_pct:.0f}% ({', '.join(list(matched)[:4]) or 'few overlaps'}). "
+                f"Location score {loc_score:.0f}. Experience: {exp_fit}."
             ),
             "priority": priority,
             "analyzed_at": datetime.now().isoformat(),
@@ -343,21 +472,28 @@ def node_career_strategy(state: AgentState) -> AgentState:
         }
         recommendations.append(rec)
 
-    recommendations.sort(key=lambda x: x["match_score"], reverse=True)
+    recommendations.sort(
+        key=lambda x: (x["match_score"], x.get("title_relevance", 0)),
+        reverse=True,
+    )
+    # Keep top N for UI clarity
+    recommendations = recommendations[:25]
     state["career_recommendations"] = recommendations
 
     logger.info(
-        "[Career Strategy] Generated %d recommendations (%s)",
+        "[Career Strategy] %d recommendations (%d dropped) via %s",
         len(recommendations),
+        dropped,
         label,
     )
     for r in recommendations[:5]:
         logger.info(
-            "  -> %s @ %s: %s (%s) [%s]",
+            "  -> [%s] %s @ %s score=%s title=%s skills=%s",
+            r["priority"],
             r["title"],
             r["company"],
             r["match_score"],
-            r["priority"],
-            r["location"],
+            r.get("title_relevance"),
+            r["skill_match_pct"],
         )
     return state
