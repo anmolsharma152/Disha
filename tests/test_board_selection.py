@@ -21,19 +21,16 @@ class TestBoardSelection(unittest.TestCase):
         boards = [b for _, b in plan.greenhouse]
         self.assertEqual(boards, ["phonepe"])
         self.assertIn("company_match", plan.reasons)
-        self.assertFalse(plan.fetch_rss)
 
     def test_company_match_anthropic(self) -> None:
         plan = select_scrape_plan("Any ML jobs at Anthropic?")
         self.assertEqual([b for _, b in plan.greenhouse], ["anthropic"])
         self.assertTrue(any("ml" in k or "machine learning" in k for k in plan.title_keywords) or plan.title_keywords)
 
-    def test_default_career_skips_rss_and_openai(self) -> None:
+    def test_default_career_plan(self) -> None:
         plan = select_scrape_plan(
             "Find Agentic AI and backend roles in Bangalore above 20 LPA"
         )
-        self.assertFalse(plan.fetch_rss)
-        self.assertEqual(plan.playwright_urls, [])
         self.assertGreater(len(plan.greenhouse), 0)
         self.assertIn("default_career", plan.reasons)
         self.assertTrue(plan.prefer_india_locations)
@@ -43,14 +40,13 @@ class TestBoardSelection(unittest.TestCase):
             plan.title_keywords,
         )
 
-    def test_financial_query_enables_rss(self) -> None:
+    def test_financial_query_skips_rss(self) -> None:
         plan = select_scrape_plan("Should I invest in Indian AI companies?")
-        self.assertTrue(plan.fetch_rss)
         self.assertTrue(is_financial_query("Should I invest in Indian AI companies?"))
 
-    def test_playwright_for_named_non_ats(self) -> None:
+    def test_openai_resolved_via_greenhouse(self) -> None:
         plan = select_scrape_plan("OpenAI research roles")
-        self.assertTrue(any("openai" in u for u in plan.playwright_urls))
+        self.assertIn("openai", [b for _, b in plan.greenhouse])
 
     def test_extract_title_keywords_agentic(self) -> None:
         kws = extract_title_keywords("Agentic AI LLMOps engineer in Pune")

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional, Sequence, Tuple
+from typing import List, Literal, Optional, Sequence, Tuple
 
 
 # ──────────────────────────────────────────────────────────────
@@ -38,6 +38,7 @@ GREENHOUSE_CATALOG: Tuple[BoardEntry, ...] = (
     BoardEntry("Postman", "postman", "greenhouse", ("postman",), frozenset({"india", "developer_tools", "backend", "ai"}), True),
     BoardEntry("Druva", "druva", "greenhouse", ("druva",), frozenset({"india", "infra", "security", "backend"}), True),
     # Global AI / ML platforms (often hire remotely / India-friendly)
+    BoardEntry("OpenAI", "openai", "greenhouse", ("openai", "chatgpt", "gpt"), frozenset({"ai", "ml", "llm"}), True),
     BoardEntry("Anthropic", "anthropic", "greenhouse", ("anthropic", "claude"), frozenset({"ai", "ml", "llm"}), True),
     BoardEntry("Databricks", "databricks", "greenhouse", ("databricks",), frozenset({"ai", "ml", "data", "infra"}), True),
     BoardEntry("Scale AI", "scaleai", "greenhouse", ("scale ai", "scaleai"), frozenset({"ai", "ml", "data"}), True),
@@ -73,15 +74,6 @@ LEVER_CATALOG: Tuple[BoardEntry, ...] = (
     BoardEntry("Unacademy", "unacademy", "lever", ("unacademy",), frozenset({"india", "edtech"}), False),
     BoardEntry("UpGrad", "upgrad", "lever", ("upgrad", "upgrad"), frozenset({"india", "edtech"}), False),
 )
-
-# Playwright career pages (no reliable public JSON board). Only used when named.
-PLAYWRIGHT_COMPANY_URLS: Dict[str, Tuple[str, ...]] = {
-    "openai": ("https://boards.greenhouse.io/openai",),
-    "razorpay": ("https://razorpay.com/jobs/",),
-    "swiggy": ("https://careers.swiggy.com/",),
-    "zomato": ("https://www.zomato.com/careers",),
-    "cred": ("https://careers.cred.club/",),
-}
 
 FINANCIAL_TERMS = (
     "invest",
@@ -149,8 +141,6 @@ class ScrapePlan:
     greenhouse: List[Tuple[str, str]] = field(default_factory=list)  # (company, board)
     lever: List[Tuple[str, str]] = field(default_factory=list)
     title_keywords: List[str] = field(default_factory=list)
-    fetch_rss: bool = False
-    playwright_urls: List[str] = field(default_factory=list)
     max_results_per_board: int = 20
     prefer_india_locations: bool = True
     reasons: List[str] = field(default_factory=list)
@@ -319,18 +309,10 @@ def select_scrape_plan(
     mentioned_gh = extract_mentioned_companies(query, GREENHOUSE_CATALOG)
     mentioned_lv = extract_mentioned_companies(query, LEVER_CATALOG)
 
-    # Playwright companies not in Greenhouse catalog
-    for name, urls in PLAYWRIGHT_COMPANY_URLS.items():
-        if _alias_in_query(q, name):
-            plan.playwright_urls.extend(urls)
-            plan.reasons.append(f"playwright:{name}")
-
-    if mentioned_gh or mentioned_lv or plan.playwright_urls:
+    if mentioned_gh or mentioned_lv:
         plan.greenhouse = [(e.company, e.board) for e in mentioned_gh[:max_greenhouse]]
         plan.lever = [(e.company, e.board) for e in mentioned_lv[:max_lever]]
         plan.reasons.append("company_match")
-        # Company-specific: still allow RSS if purely financial about that co
-        plan.fetch_rss = financial and not (plan.greenhouse or plan.lever)
         if financial:
             plan.reasons.append("financial_with_company")
         if fallback:
@@ -391,9 +373,7 @@ def select_scrape_plan(
             p.reasons.append("startup_intent")
 
     if financial and not fallback:
-        plan.fetch_rss = True
-        plan.reasons.append("financial_rss_only")
-        # Optional light AI company scrape for "invest in Indian AI" style queries
+        plan.reasons.append("financial_intent")
         if any(t in q for t in ("ai", "ml", "llm", "startup", "tech")):
             gh, _ = _default_career_boards(
                 prefer_india=plan.prefer_india_locations,
@@ -409,7 +389,6 @@ def select_scrape_plan(
     if fallback:
         plan.title_keywords = []
         plan.prefer_india_locations = False
-        plan.fetch_rss = False
         # Use most of the catalog, not only default=True
         gh_all = list(GREENHOUSE_CATALOG)[:max_greenhouse]
         lv_all = list(LEVER_CATALOG)[:max_lever]
@@ -429,7 +408,6 @@ def select_scrape_plan(
     )
     plan.greenhouse = [(e.company, e.board) for e in gh]
     plan.lever = [(e.company, e.board) for e in lv]
-    plan.fetch_rss = False
     plan.reasons.append("default_career")
     if plan.title_keywords:
         plan.reasons.append("topic_filters:" + ",".join(plan.title_keywords[:5]))

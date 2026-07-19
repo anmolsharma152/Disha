@@ -1,16 +1,13 @@
 """
 Disha - Scraper Agent
-Query-aware job acquisition via Greenhouse/Lever, optional Playwright + Gemini.
+Query-aware job acquisition via Greenhouse, Lever, WWR, and YC.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime
 from typing import Any, Dict, List
-
-from pydantic import BaseModel
 
 from schemas import (
     AgentState,
@@ -20,8 +17,6 @@ from schemas import (
 )
 
 from tools.scraper_tools import (
-    fetch_financial_news_rss,
-    fetch_webpage_playwright,
     search_greenhouse_jobs,
     search_lever_jobs,
 )
@@ -345,123 +340,6 @@ def _fetch_lever(plan: ScrapePlan) -> List[Dict[str, Any]]:
     return jobs
 
 
-def _fetch_rss_metrics(state: AgentState) -> None:
-    try:
-        rss_result = fetch_financial_news_rss.invoke(
-            {
-                "feed_url": "http://feeds.bbci.co.uk/news/business/rss.xml",
-                "max_items": 5,
-            }
-        )
-        logger.info(
-            "[Scraper] RSS fetch returned %s articles",
-            len(rss_result.get("articles", [])),
-        )
-        if rss_result.get("articles"):
-            for article in rss_result["articles"][:2]:
-                mock_metrics = CompanyMetrics(
-                    company_name="BBC Business",
-                    ticker=None,
-                    market_cap=None,
-                    revenue_ttm=None,
-                    revenue_growth_yoy=None,
-                    headcount_current=None,
-                    headcount_6m_ago=None,
-                    source_url=article["link"],
-                    source_domain=article["source_domain"],
-                    scraper_source=ScraperSource.RSS_FEED,
-                    confidence_score=0.7,
-                    fiscal_period=None,
-                )
-                existing_metrics = state.get("company_metrics", [])
-                state["company_metrics"] = existing_metrics + [
-                    mock_metrics.model_dump(mode="json")
-                ]
-    except Exception as e:
-        logger.warning("[Scraper] RSS fetch failed: %s", e)
-        _append_error(state, "fetch_financial_news_rss", e, severity="warning")
-
-
-def _fetch_playwright_pages(state: AgentState, urls: List[str]) -> None:
-    for url in urls:
-        try:
-            logger.info("[Scraper] Playwright fetching: %s", url)
-            page_result = fetch_webpage_playwright.invoke(
-                {
-                    "url": url,
-                    "wait_for_timeout": 5000,
-                }
-            )
-            state.setdefault("raw_scraped_pages", []).append(
-                {
-                    "url": page_result["url"],
-                    "html": page_result.get("html", ""),
-                    "markdown": page_result.get("markdown", ""),
-                    "metadata": {
-                        "scraped_at": page_result.get("scraped_at"),
-                        "scraper": "playwright",
-                        "status": 200,
-                    },
-                }
-            )
-        except Exception as e:
-            logger.warning("[Scraper] Playwright fetch failed for %s: %s", url, e)
-            # Non-fatal if ATS boards still produce jobs; empty scrape is what triggers recovery
-            _append_error(state, "fetch_webpage_playwright", e, severity="warning")
-
-
-def _extract_jobs_with_gemini(state: AgentState) -> List[Dict[str, Any]]:
-    scraped_pages = state.get("raw_scraped_pages", [])
-    pages_with_content = [p for p in scraped_pages if len(p.get("markdown", "")) > 50]
-    has_gemini_key = bool(
-        os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-    )
-    if not pages_with_content or not has_gemini_key:
-        if not pages_with_content:
-            logger.info("[Scraper] No Playwright pages with content — skip Gemini")
-        if not has_gemini_key:
-            logger.info("[Scraper] No Gemini API key — skip LLM extraction")
-        return []
-
-    extracted: List[Dict[str, Any]] = []
-    try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-
-        class JobExtraction(BaseModel):
-            jobs: list[JobOpening]
-
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
-        structured_llm = llm.with_structured_output(JobExtraction)
-
-        for page in pages_with_content:
-            md_text = page.get("markdown", "")
-            url = page.get("url", "")
-            try:
-                logger.info("[Scraper] Extracting jobs via LLM from %s...", url)
-                prompt = f"""
-Extract all job openings from the following career page markdown.
-The source URL is {url}.
-If compensation or specific skills are missing, leave them empty or null.
-Only extract actual job listings. Limit to the top 5 jobs found.
-
-Markdown Content:
-{md_text[:25000]}
-"""
-                result = structured_llm.invoke(prompt)
-                if result and result.jobs:
-                    for job in result.jobs:
-                        job.source_url = url
-                        extracted.append(job.model_dump(mode="json"))
-                        logger.info(
-                            "  -> Extracted: %s at %s", job.title, job.company_name
-                        )
-            except Exception as e:
-                logger.error("[Scraper] LLM extraction failed for %s: %s", url, e)
-    except Exception as e:
-        logger.warning("[Scraper] Gemini initialization failed (non-fatal): %s", e)
-    return extracted
-
-
 # ══════════════════════════════════════════════════════════════════
 # Main node
 # ══════════════════════════════════════════════════════════════════
@@ -469,8 +347,7 @@ Markdown Content:
 
 def node_scraper(state: AgentState) -> AgentState:
     """
-    Scraper Agent: selects ATS boards from the user query, fetches jobs,
-    optionally pulls RSS (financial) or Playwright pages (named companies).
+    Scraper Agent: selects ATS boards from the user query, fetches jobs.
 
     When ``fallback_activated["scraper"]`` is set (error_recovery), uses a
     broader scrape plan with relaxed filters.
@@ -512,13 +389,11 @@ def node_scraper(state: AgentState) -> AgentState:
             plan.prefer_india_locations = True
 
     logger.info(
-        "[Scraper] plan reasons=%s gh=%d lever=%d rss=%s playwright=%d "
+        "[Scraper] plan reasons=%s gh=%d lever=%d "
         "keywords=%s fallback=%s profile=%s",
         plan.reasons,
         len(plan.greenhouse),
         len(plan.lever),
-        plan.fetch_rss,
-        len(plan.playwright_urls),
         plan.title_keywords[:12],
         fallback,
         profile.get("display_name") or f"{len(profile.get('skills') or [])} skills",
@@ -527,7 +402,6 @@ def node_scraper(state: AgentState) -> AgentState:
     state["current_agent"] = "scraper"
     state["updated_at"] = datetime.now()
     state.setdefault("error_log", [])
-    state.setdefault("raw_scraped_pages", [])
     state.setdefault("company_metrics", [])
     state.setdefault("job_openings", [])
     state.setdefault("fallback_activated", {})
@@ -536,16 +410,9 @@ def node_scraper(state: AgentState) -> AgentState:
     # Count attempts for observability
     state["retry_count"]["scraper"] = state["retry_count"].get("scraper", 0) + 1
 
-    if plan.fetch_rss:
-        _fetch_rss_metrics(state)
-
-    if plan.playwright_urls:
-        _fetch_playwright_pages(state, plan.playwright_urls)
-
     new_job_dicts: List[Dict[str, Any]] = []
     new_job_dicts.extend(_fetch_greenhouse(plan))
     new_job_dicts.extend(_fetch_lever(plan))
-    new_job_dicts.extend(_extract_jobs_with_gemini(state))
 
     # External first-class boards (WWR, YC) — cached
     ext_kw = list(plan.title_keywords[:6]) if plan.title_keywords else None

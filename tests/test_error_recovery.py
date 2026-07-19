@@ -88,8 +88,7 @@ class TestErrorRecovery(unittest.TestCase):
         # Force an empty plan by mocking select + fetch paths
         with patch("agents.scraper_agent.select_scrape_plan") as mock_plan, \
              patch("agents.scraper_agent._fetch_greenhouse", return_value=[]), \
-             patch("agents.scraper_agent._fetch_lever", return_value=[]), \
-             patch("agents.scraper_agent._extract_jobs_with_gemini", return_value=[]):
+             patch("agents.scraper_agent._fetch_lever", return_value=[]):
             from tools.board_selection import ScrapePlan
             mock_plan.return_value = ScrapePlan(
                 greenhouse=[],
