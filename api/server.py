@@ -10,12 +10,19 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from main import run_disha, stream_disha
 from schemas import AgentState
+from storage.user_memory import (
+    DEFAULT_USER_ID,
+    clear_memory,
+    memory_public_view,
+    upsert_profile_from_resume,
+)
+from tools.resume_parser import process_resume_upload
 
 # ──────────────────────────────────────────────────────────────
 # Logging
@@ -139,9 +146,76 @@ async def api_status():
             "learning_roadmap",
             "india_localization",
             "streaming",
+            "resume_memory",
         ],
         "timestamp": datetime.utcnow().isoformat(),
     }
+
+
+@app.get("/api/profile")
+async def get_profile(user_id: str = DEFAULT_USER_ID):
+    """Return the active user's resume-derived memory (single-user v1)."""
+    return memory_public_view(user_id)
+
+
+@app.delete("/api/profile")
+async def delete_profile(user_id: str = DEFAULT_USER_ID):
+    """Clear saved resume memory for the user."""
+    cleared = clear_memory(user_id)
+    return {"cleared": cleared, "user_id": user_id}
+
+
+@app.post("/api/profile/resume")
+async def upload_resume(
+    file: UploadFile = File(..., description="PDF or TXT resume"),
+    user_id: str = DEFAULT_USER_ID,
+):
+    """
+    Upload a resume, extract preferences (skills, roles, cities, …),
+    and store them as user memory for grounded search/matching.
+    """
+    filename = file.filename or "resume.pdf"
+    lower = filename.lower()
+    if not (
+        lower.endswith(".pdf")
+        or lower.endswith(".txt")
+        or lower.endswith(".md")
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Upload a PDF or .txt resume.",
+        )
+
+    try:
+        data = await file.read()
+        profile, method, text, safe_name = process_resume_upload(filename, data)
+        memory = upsert_profile_from_resume(
+            profile=profile,
+            filename=safe_name,
+            text_preview=text[:500],
+            char_count=len(text),
+            user_id=user_id or DEFAULT_USER_ID,
+            extraction_method=method,
+        )
+        logger.info(
+            "Resume uploaded user=%s skills=%d method=%s",
+            user_id,
+            len(profile.get("skills") or []),
+            method,
+        )
+        return {
+            "ok": True,
+            "extraction_method": method,
+            "memory": memory_public_view(user_id or DEFAULT_USER_ID),
+            "profile": memory.get("profile"),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Resume upload failed: %s", e)
+        raise HTTPException(
+            status_code=500, detail=f"Resume processing failed: {e}"
+        ) from e
 
 
 @app.post("/api/chat", response_model=ChatResponse)

@@ -372,12 +372,16 @@ def create_initial_state(
     from tools.profile import resolve_profile
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    seed: Dict[str, Any] = {"user_profile": user_profile} if user_profile else {}
-    profile = resolve_profile(seed)
+    uid = user_id or "default"
+    seed: Dict[str, Any] = {"user_id": uid}
+    if user_profile:
+        seed["user_profile"] = user_profile
+    # Loads resume memory for user_id, then layers request overrides
+    profile = resolve_profile(seed, user_id=uid)
     return AgentState(
         messages=[],
         user_query=user_query,
-        user_id=user_id,
+        user_id=uid,
         session_id=session_id or str(uuid.uuid4()),
         user_profile=profile,
         routing_key="scraper",

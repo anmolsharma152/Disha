@@ -29,7 +29,7 @@ class TestProfile(unittest.TestCase):
         self.assertNotIn("iit", name)
         self.assertFalse(has_skill_preferences(p))
         self.assertFalse(has_salary_floor(p))
-        self.assertEqual(profile_label(p), "default preferences (no personal profile)")
+        self.assertIn("default preferences", profile_label(p))
 
     def test_resolve_merges_request_override(self) -> None:
         state = {

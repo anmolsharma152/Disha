@@ -192,13 +192,13 @@ Disha/
 
 ## Configuration
 
-### Preferences (not a hardcoded personal profile)
+### Preferences & resume memory
 
-Disha does **not** bake in one person's resume or likes/dislikes. Career scoring uses:
+Disha does **not** hardcode a personal dossier. Profile fields fill from:
 
-1. **Request `preferences`** (API) — per-query overrides  
-2. **`profiles/default.yaml`** — product defaults (empty skills/cities/salary = no hard filter)  
-3. **`DISHA_PROFILE_PATH`** — optional YAML path for local defaults  
+1. **Resume upload** (UI or `POST /api/profile/resume`) → stored as single-user memory under `data/`  
+2. **Request `preferences`** — optional per-query overrides  
+3. **`profiles/default.yaml`** — empty product defaults when no memory  
 
 | Preference | Empty means |
 |------------|-------------|
@@ -207,27 +207,22 @@ Disha does **not** bake in one person's resume or likes/dislikes. Career scoring
 | `min_base_salary_inr` | Comp fit = unavailable (not auto “below”) |
 | `experience_years` | Experience fit = unknown |
 
-Product-level domain exclusions (HFT, firmware, …) stay in the **guardrail**, not a personal dossier.
+After you upload a resume, chat/search uses that memory automatically (user id `default` for v1).
 
-Example API body:
+```bash
+# Upload resume
+curl -X POST "http://localhost:8000/api/profile/resume?user_id=default" \
+  -F "file=@/path/to/resume.pdf"
 
-```json
-{
-  "query": "Backend roles in Bangalore",
-  "preferences": {
-    "skills": ["Python", "Kubernetes", "PostgreSQL"],
-    "target_cities": ["bangalore", "remote"],
-    "min_base_salary_inr": 2000000,
-    "experience_years": 3
-  }
-}
+# Inspect memory
+curl "http://localhost:8000/api/profile?user_id=default"
 ```
 
 Environment:
 
 ```bash
 GEMINI_API_KEY="your_api_key_here"
-# optional: DISHA_PROFILE_PATH=/path/to/prefs.yaml
+# optional: DISHA_DATA_DIR=/path/to/data   # where user_memory_*.json is stored
 # optional frontend
 NEXT_PUBLIC_API_URL="http://localhost:8000"
 ```

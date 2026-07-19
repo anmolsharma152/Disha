@@ -36,6 +36,7 @@ from tools.board_selection import (
     job_matches_keywords,
     select_scrape_plan,
 )
+from tools.profile import resolve_profile
 
 logger = logging.getLogger("disha.agents.scraper")
 
@@ -474,17 +475,47 @@ def node_scraper(state: AgentState) -> AgentState:
     """
     query = state.get("user_query") or ""
     fallback = bool(state.get("fallback_activated", {}).get("scraper"))
+    profile = resolve_profile(state)
+    state["user_profile"] = profile  # ensure memory is visible downstream
+
     plan = select_scrape_plan(query, fallback=fallback)
+
+    # Ground filters with resume memory (skills / target roles) without hardcoding
+    if not fallback:
+        grounded: List[str] = []
+        for role in (profile.get("target_roles") or [])[:4]:
+            if role and str(role).lower() not in grounded:
+                grounded.append(str(role).lower())
+        for skill in (profile.get("skills") or [])[:8]:
+            s = str(skill).lower().strip()
+            if s and s not in grounded and len(s) > 1:
+                grounded.append(s)
+        if grounded:
+            # Prefer query keywords; append profile terms for broader recall
+            existing = {k.lower() for k in plan.title_keywords}
+            for g in grounded:
+                if g not in existing:
+                    plan.title_keywords.append(g)
+            plan.reasons.append("grounded_resume_memory")
+            # Soft India cities from profile when user has them
+            cities = [c.lower() for c in (profile.get("target_cities") or []) if c]
+            if cities and any(
+                c in {"bangalore", "bengaluru", "delhi", "pune", "hyderabad", "mumbai", "india", "remote"}
+                for c in cities
+            ):
+                plan.prefer_india_locations = True
+
     logger.info(
         "[Scraper] plan reasons=%s gh=%d lever=%d rss=%s playwright=%d "
-        "keywords=%s fallback=%s",
+        "keywords=%s fallback=%s profile=%s",
         plan.reasons,
         len(plan.greenhouse),
         len(plan.lever),
         plan.fetch_rss,
         len(plan.playwright_urls),
-        plan.title_keywords,
+        plan.title_keywords[:12],
         fallback,
+        profile.get("display_name") or f"{len(profile.get('skills') or [])} skills",
     )
 
     state["current_agent"] = "scraper"

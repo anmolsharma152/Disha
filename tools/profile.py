@@ -122,30 +122,60 @@ def merge_preferences(
     return _coerce_profile(out)
 
 
-def resolve_profile(state: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+def resolve_profile(
+    state: Optional[Mapping[str, Any]] = None,
+    user_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Resolve effective profile for this run.
 
-    Priority: state["user_profile"] (request override) > defaults.
+    Priority:
+      1. state["user_profile"] request override (partial OK)
+      2. saved user memory (resume-derived)
+      3. product defaults (empty skills/cities = neutral)
     """
     defaults = load_default_profile()
-    if not state:
-        return defaults
-    override = state.get("user_profile") if isinstance(state, Mapping) else None
-    if not override:
-        return defaults
-    return merge_preferences(defaults, override)
+    uid = user_id
+    if uid is None and isinstance(state, Mapping):
+        uid = state.get("user_id")
+    uid = uid or "default"
+
+    memory_profile: Dict[str, Any] = {}
+    try:
+        from storage.user_memory import get_profile
+
+        memory_profile = get_profile(str(uid)) or {}
+    except Exception as e:
+        logger.debug("[Profile] Memory load skipped: %s", e)
+
+    base = merge_preferences(defaults, memory_profile) if memory_profile else defaults
+
+    override = None
+    if isinstance(state, Mapping):
+        override = state.get("user_profile")
+    if override:
+        # Only apply non-empty override fields so partial request prefs layer on memory
+        cleaned = {
+            k: v
+            for k, v in dict(override).items()
+            if v is not None and v != [] and v != ""
+        }
+        if cleaned:
+            return merge_preferences(base, cleaned)
+    return base
 
 
 def profile_label(profile: Mapping[str, Any]) -> str:
     """Human-readable label for logs (never requires a real name)."""
     name = profile.get("display_name") or profile.get("name")
+    n_skills = len(profile.get("skills") or [])
+    if name and n_skills:
+        return f"{name} ({n_skills} skills from memory)"
     if name:
         return str(name)
-    n_skills = len(profile.get("skills") or [])
     if n_skills:
-        return f"custom preferences ({n_skills} skills)"
-    return "default preferences (no personal profile)"
+        return f"resume memory ({n_skills} skills)"
+    return "default preferences (no resume memory)"
 
 
 def has_skill_preferences(profile: Mapping[str, Any]) -> bool:

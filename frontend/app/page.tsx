@@ -1,11 +1,13 @@
 "use client"
 
 import { useChat } from "@/hooks"
+import { useProfile } from "@/hooks/useProfile"
 import { ChatInput } from "@/components/chat/ChatInput"
 import { AgentStatus } from "@/components/chat/AgentStatus"
 import { FinalAnswer } from "@/components/chat/FinalAnswer"
 import { JobList } from "@/components/jobs"
 import { RecommendationList } from "@/components/recommendations"
+import { ResumePanel } from "@/components/profile/ResumePanel"
 import { ThemeToggle } from "@/components/layout"
 
 export default function Home() {
@@ -19,6 +21,15 @@ export default function Home() {
     careerRecommendations,
   } = useChat()
 
+  const {
+    memory,
+    loading: profileLoading,
+    uploading,
+    error: profileError,
+    uploadResume,
+    clearProfile,
+  } = useProfile("default")
+
   const hasResults =
     jobOpenings.length > 0 ||
     careerRecommendations.length > 0 ||
@@ -29,6 +40,7 @@ export default function Home() {
   )
 
   const showDashboard = hasRecs || !!finalAnswer || jobOpenings.length > 0
+  const hasMemory = !!memory?.has_profile
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 pb-32 pt-6 sm:px-6 sm:pt-8 lg:px-8">
@@ -38,19 +50,36 @@ export default function Home() {
             Disha
           </h1>
           <p className="text-sm text-muted-foreground">
-            Find roles, rank matches, get a short summary
+            Resume-grounded search and ranked matches
+            {hasMemory && memory?.skill_count
+              ? ` · ${memory.skill_count} skills in memory`
+              : ""}
           </p>
         </div>
         <ThemeToggle />
       </header>
 
       <main className="flex flex-1 flex-col gap-6">
+        <ResumePanel
+          memory={memory}
+          loading={profileLoading}
+          uploading={uploading}
+          error={profileError}
+          onUpload={uploadResume}
+          onClear={clearProfile}
+        />
+
         {!loading && !hasResults && !error && (
-          <div className="mx-auto w-full max-w-lg rounded-xl border border-dashed bg-muted/20 px-5 py-10 text-center">
-            <p className="text-sm font-medium">Start with a company or role</p>
-            <p className="mx-auto mt-1.5 max-w-sm text-xs leading-relaxed text-muted-foreground">
-              Try a specific company first (e.g. PhonePe). Matches and summary
-              appear side-by-side on larger screens.
+          <div className="rounded-xl border border-dashed bg-muted/20 px-5 py-8 text-center">
+            <p className="text-sm font-medium">
+              {hasMemory
+                ? "Search with your resume memory"
+                : "Upload a resume, then search"}
+            </p>
+            <p className="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-muted-foreground">
+              {hasMemory
+                ? "Queries use your stored skills and target roles to rank openings. Try a company like PhonePe."
+                : "Without a resume, matching stays neutral. Upload a PDF so recommendations reflect real skills."}
             </p>
           </div>
         )}
@@ -63,7 +92,6 @@ export default function Home() {
 
         {showDashboard && (
           <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12 lg:gap-8">
-            {/* Primary: ranked matches */}
             <div className="min-w-0 space-y-6 lg:col-span-7 xl:col-span-8">
               {hasRecs ? (
                 <RecommendationList recommendations={careerRecommendations} />
@@ -71,13 +99,11 @@ export default function Home() {
                 <JobList jobs={jobOpenings} defaultOpen />
               ) : null}
 
-              {/* Openings under matches on wide screens when both exist */}
               {hasRecs && jobOpenings.length > 0 && (
                 <JobList jobs={jobOpenings} defaultOpen={false} />
               )}
             </div>
 
-            {/* Secondary: sticky summary column */}
             <aside className="min-w-0 space-y-4 lg:col-span-5 xl:col-span-4 lg:sticky lg:top-6 lg:self-start">
               {finalAnswer ? (
                 <FinalAnswer answer={finalAnswer} />
@@ -97,7 +123,7 @@ export default function Home() {
 
       <footer className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
-          <ChatInput onSend={sendMessage} disabled={loading} />
+          <ChatInput onSend={sendMessage} disabled={loading || uploading} />
         </div>
       </footer>
     </div>
