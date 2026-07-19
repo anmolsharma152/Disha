@@ -2,10 +2,8 @@
 fastapi
 uvicorn
 
-# Database & Storage
-sqlalchemy
-asyncpg
-pgvector
+# Testing
+pytest
 
 # Data Processing
 numpy

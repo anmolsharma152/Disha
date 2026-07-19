@@ -54,15 +54,6 @@ class EvaluateResumeOutput(BaseModel):
 # Core Evaluation Logic
 # ──────────────────────────────────────────────────────────────
 
-def extract_skills_from_text(text: str, known_skills: List[str]) -> Dict[str, float]:
-    """Stub kept for legacy references."""
-    return {}
-
-def extract_ats_keywords(job_description: str) -> List[str]:
-    """Stub kept for legacy references."""
-    return []
-
-
 # ──────────────────────────────────────────────────────────────
 # LangChain Tool
 # ──────────────────────────────────────────────────────────────
@@ -145,27 +136,6 @@ def evaluate_resume_against_job(
             ats_keywords_missing=[]
         )
         return fallback.model_dump()
-
-
-# ──────────────────────────────────────────────────────────────
-# Tool Registry
-# ──────────────────────────────────────────────────────────────
-
-CAREER_TOOLS = [
-    evaluate_resume_against_job,
-]
-
-CAREER_TOOL_MAP = {t.name: t for t in CAREER_TOOLS}
-
-
-def get_career_tool(name: str):
-    """Retrieve career tool by name."""
-    return CAREER_TOOL_MAP.get(name)
-
-
-def list_career_tools() -> List[str]:
-    """List available career tool names."""
-    return list(CAREER_TOOL_MAP.keys())
 
 
 # ──────────────────────────────────────────────────────────────
