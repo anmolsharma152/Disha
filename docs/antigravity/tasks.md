@@ -1,0 +1,8 @@
+- [x] Update `requirements.txt` and install dependencies (Playwright, PyPDF2, etc.)
+- [x] Initialize Playwright browsers (`playwright install`)
+- [x] Implement Playwright scraping in `tools/scraper_tools.py`
+- [x] Hook Playwright to Gemini JSON extraction in `agents/scraper_agent.py`
+- [x] Refactor `evaluate_resume_against_job` to use Gemini LLM judge in `tools/career_tools.py`
+- [x] Create `docker-compose.yml` for pgvector
+- [x] Update `storage/db.py` to use real PostgreSQL vector search and Gemini embeddings
+- [x] Verify endpoints and manual testing
