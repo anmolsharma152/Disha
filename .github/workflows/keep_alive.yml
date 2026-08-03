@@ -1,0 +1,32 @@
+name: Keep Alive
+
+on:
+  schedule:
+    # Run every 14 minutes to prevent Render free tier sleep (15 min limit)
+    # and Supabase project auto-pause (7 days limit)
+    - cron: '*/14 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping_services:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Backend Health Check
+        run: |
+          if [ -n "${{ secrets.RENDER_BACKEND_URL }}" ]; then
+            echo "Pinging Render Backend..."
+            curl -s "${{ secrets.RENDER_BACKEND_URL }}/health" > /dev/null
+          else
+            echo "RENDER_BACKEND_URL secret not set, skipping."
+          fi
+
+      - name: Ping Supabase Database / API
+        run: |
+          if [ -n "${{ secrets.SUPABASE_URL }}" ] && [ -n "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "Pinging Supabase REST API..."
+            curl -s -X GET "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+                 -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+                 -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" > /dev/null
+          else
+            echo "SUPABASE_URL or SUPABASE_ANON_KEY secret not set, skipping."
+          fi
