@@ -18,3 +18,6 @@
 - [x] Production Docker Compose configuration (`docker-compose.prod.yml`)
 - [x] Production Environment Variable Template (`.env.example`)
 - [x] Production Deployment Guide (`docs/deployment.md`)
+- [x] Firecrawl Cloud Scraper Integration (`tools/firecrawl_tools.py`)
+- [x] Firecrawl Web Search Integration in `agents/scraper_agent.py`
+- [x] Firecrawl Test Suite (`tests/test_firecrawl.py`)

@@ -340,6 +340,35 @@ def _fetch_lever(plan: ScrapePlan) -> List[Dict[str, Any]]:
     return jobs
 
 
+def _fetch_firecrawl_search(plan: ScrapePlan) -> List[Dict[str, Any]]:
+    import os
+    if not os.environ.get("FIRECRAWL_API_KEY"):
+        return []
+    try:
+        from tools.firecrawl_tools import search_jobs_firecrawl
+        kw_str = f"{' '.join(plan.title_keywords[:3])} India" if plan.title_keywords else "AI Engineer India"
+        res = search_jobs_firecrawl.invoke({"query": kw_str, "limit": 10})
+        jobs = []
+        for item in res.get("results", []):
+            url = item.get("url") or item.get("link")
+            title = item.get("title") or item.get("name")
+            if url and title:
+                jobs.append({
+                    "title": title,
+                    "company_name": item.get("siteName") or "Web Search",
+                    "application_url": url,
+                    "source_url": url,
+                    "location_raw": "India / Remote",
+                    "scraper_source": "firecrawl_search",
+                    "description_raw": item.get("description") or item.get("snippet") or "",
+                })
+        logger.info("[Scraper] Firecrawl contributed %d search results", len(jobs))
+        return jobs
+    except Exception as e:
+        logger.warning("[Scraper] Firecrawl search failed: %s", e)
+        return []
+
+
 # ══════════════════════════════════════════════════════════════════
 # Main node
 # ══════════════════════════════════════════════════════════════════
@@ -443,6 +472,11 @@ def node_scraper(state: AgentState) -> AgentState:
         except Exception as e:
             logger.warning("[Scraper] YC fetch failed: %s", e)
             _append_error(state, "fetch_yc", e, severity="warning")
+
+    # Firecrawl web search integration (if FIRECRAWL_API_KEY present)
+    fc_jobs = _fetch_firecrawl_search(plan)
+    if fc_jobs:
+        new_job_dicts.extend(fc_jobs)
 
     filtered = _apply_query_filters(new_job_dicts, plan)
     filtered = filter_jobs(filtered)

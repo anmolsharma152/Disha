@@ -1,98 +1,94 @@
-# Disha Production Deployment Implementation Plan
+# Disha Firecrawl Integration Plan
 
-This plan details the steps to containerize, configure, and deploy the Disha backend API, frontend UI, and Postgres+pgvector database to production.
+This plan details the integration of **Firecrawl** (`firecrawl-py` Python SDK / API) into Disha's job ingestion layer as a first-class scraper and extraction backend for complex, JS-rendered career portals (Workday, Instahyre, Wellfound, BeBee, custom `/careers` pages).
 
 ---
 
-## 1. Target Architecture & Environment
+## 1. Objective & Architecture
+
+### Why Firecrawl in Disha?
+- **JS Rendering Without Browser Overhead:** Eliminates heavy Playwright container maintenance for JS-rendered career portals.
+- **Native JSON Schema Extraction:** Extracts structured `JobOpening` Pydantic objects directly in a single API call using Firecrawl's LLM extraction engine.
+- **Site Mapping & Discovery:** Maps company `/careers` sub-URLs (`firecrawl.map_url()`) to discover active engineering job postings automatically.
+- **Multi-Source Job Search:** Executes multi-board search queries across career pages using `firecrawl.search()`.
+
+### Scraper Priority Hierarchy
 
 ```text
-                                ┌─────────────────────────┐
-                                │   Next.js 14 Frontend   │
-                                │    (Vercel / Docker)    │
-                                └────────────┬────────────┘
-                                             │ HTTP/SSE
-                                             ▼
-                                ┌─────────────────────────┐
-                                │   FastAPI Backend API   │
-                                │   (Docker / Cloud Run)  │
-                                └──────┬────────────┬─────┘
-                                       │            │
-                         Google Gemini │            │ SQLAlchemy + pgvector
-                              API      ▼            ▼
-                                ┌───────────┐  ┌──────────────────┐
-                                │ Gemini 2.5│  │ Managed Postgres │
-                                │   Flash   │  │   + pgvector     │
-                                └───────────┘  └──────────────────┘
+Query → Scraper Agent
+       ├─ 1. Greenhouse JSON API (boards-api.greenhouse.io)
+       ├─ 2. Lever Board Scraper (jobs.lever.co)
+       ├─ 3. Firecrawl API (firecrawl.search / scrape / extract) ◄─ [NEW PRIMARY]
+       └─ 4. Playwright Headless Browser (local fallback if no API key)
 ```
 
-- **Backend Gateway:** FastAPI + LangGraph orchestrator containerized with Playwright headless Chromium.
-- **Frontend:** Next.js 14 app deployed on Vercel or standalone Docker container.
-- **Database:** PostgreSQL instance with `pgvector` extension enabled (Supabase / Neon.tech / Render Postgres / Docker).
+---
+
+## 2. Proposed Changes & New Modules
+
+### Component 1: Dependency & Environment Configuration
+#### **[MODIFY] [requirements.txt](file:///home/anmol/Projects/Disha/requirements.txt)**
+- Add `firecrawl-py>=1.0.0`.
+
+#### **[MODIFY] [.env.example](file:///home/anmol/Projects/Disha/.env.example)**
+- Add `FIRECRAWL_API_KEY=your_firecrawl_api_key_here`.
 
 ---
 
-## 2. Proposed Changes & New Artifacts
+### Component 2: Dedicated Firecrawl Tools Module
+#### **[NEW] [tools/firecrawl_tools.py](file:///home/anmol/Projects/Disha/tools/firecrawl_tools.py)**
+Implement standard LangChain-compatible tools wrapping the `firecrawl-py` SDK:
 
-### Component 1: Backend Containerization
-#### **[NEW] [Dockerfile](file:///home/anmol/Projects/Disha/Dockerfile)**
-- Base image: `mcr.microsoft.com/playwright/python:v1.44.0-jammy` or `python:3.12-slim` with system Playwright Chromium dependencies installed.
-- Install Python requirements (`pip install -r requirements.txt`).
-- Expose port `8000`.
-- Entrypoint: `uvicorn api.server:app --host 0.0.0.0 --port 8000`.
+1. **`fetch_webpage_firecrawl`**:
+   - Calls `firecrawl.scrape_url(url, params={'formats': ['markdown']})`.
+   - Returns clean, script-stripped Markdown content for any JS-heavy page.
+   - Includes SSRF safety validation (`is_safe_url`).
 
-### Component 2: Database Initialization Script
-#### **[NEW] [storage/init_db.py](file:///home/anmol/Projects/Disha/storage/init_db.py)**
-- Async database initialization script creating `job_openings` and `document_chunks` tables with `Vector(768)` columns if missing.
+2. **`extract_job_firecrawl`**:
+   - Calls `firecrawl.scrape_url(url, params={'formats': ['extract'], 'extract': {'schema': JobSchema}})` using `JobOpening` schema.
+   - Directly returns parsed `JobOpening` dict without requiring secondary LLM calls.
 
-### Component 3: Frontend Production Docker & Build Config
-#### **[NEW] [frontend/Dockerfile](file:///home/anmol/Projects/Disha/frontend/Dockerfile)**
-- Multi-stage Next.js production build (`node:20-alpine`).
-- Production environment variable handling for `NEXT_PUBLIC_API_URL`.
+3. **`map_company_careers_firecrawl`**:
+   - Calls `firecrawl.map_url(url, params={'search': 'engineer|developer|ml|ai'})`.
+   - Returns list of specific job posting URLs under a company's career section.
 
-### Component 4: Environment & Production Docker Compose
-#### **[NEW] [.env.example](file:///home/anmol/Projects/Disha/.env.example)**
-- Template for production secrets (`GEMINI_API_KEY`, `ALLOWED_ORIGINS`, `DATABASE_URL`, `DISHA_DATA_DIR`).
-#### **[NEW] [docker-compose.prod.yml](file:///home/anmol/Projects/Disha/docker-compose.prod.yml)**
-- Production multi-container compose file orchestrating `db` (pgvector), `backend` (FastAPI), and `frontend` (Next.js).
-
-### Component 5: Deployment Documentation
-#### **[NEW] [docs/deployment.md](file:///home/anmol/Projects/Disha/docs/deployment.md)**
-- Comprehensive deployment guide covering:
-  - Option A: Free/PaaS Deployment (Render/Railway + Vercel + Supabase)
-  - Option B: Self-Hosted Docker Compose (`docker compose -f docker-compose.prod.yml up -d`)
-  - Option C: GCP Cloud Run + Cloud SQL.
+4. **`search_jobs_firecrawl`**:
+   - Calls `firecrawl.search(query, params={'limit': 10})`.
+   - Performs web-wide role discovery across job sites.
 
 ---
 
-## 3. Verification Plan
+### Component 3: Integration into Scraper Agent
+#### **[MODIFY] [agents/scraper_agent.py](file:///home/anmol/Projects/Disha/agents/scraper_agent.py)**
+- Check for `FIRECRAWL_API_KEY` in environment.
+- When scraping non-ATS company URLs or running multi-source search:
+  - Prefer `extract_job_firecrawl` / `fetch_webpage_firecrawl`.
+  - Fall back to Playwright only if `FIRECRAWL_API_KEY` is not configured.
 
-### Automated Verification
-1. Test Docker image build locally:
+---
+
+### Component 4: Testing & Verification
+#### **[NEW] [tests/test_firecrawl.py](file:///home/anmol/Projects/Disha/tests/test_firecrawl.py)**
+- **Unit Tests:** Mocked tests verifying schema extraction, URL mapping, and error handling.
+- **Integration Test:** Live scraping test when `FIRECRAWL_API_KEY` is set in environment.
+
+---
+
+## 3. Verification & Execution Plan
+
+1. Install `firecrawl-py` package:
    ```bash
-   docker build -t disha-backend:latest .
+   pip install firecrawl-py
    ```
-2. Test full multi-container stack locally:
+2. Create `tools/firecrawl_tools.py` and register tools.
+3. Update `agents/scraper_agent.py` to route custom URL scrapes through Firecrawl.
+4. Run test suite:
    ```bash
-   docker compose -f docker-compose.prod.yml up -d
-   ```
-3. Run backend health check against containerized server:
-   ```bash
-   curl http://localhost:8000/health
-   ```
-4. Run full test suite inside backend container:
-   ```bash
-   docker run --rm disha-backend:latest pytest tests/
+   PYTHONPATH=. .venv/bin/pytest tests/test_firecrawl.py
    ```
 
 ---
 
 ## User Review Required
 
-> [!IMPORTANT]
-> **Deployment Destination Preference**: Which deployment strategy do you prefer for initial launch?
-> 1. **Option A (Recommended for Quick Start):** Vercel (Frontend) + Render/Railway (Backend) + Supabase (pgvector DB).
-> 2. **Option B (Self-Hosted Single VPS):** Single Docker Compose setup on a VPS (DigitalOcean / Hetzner / AWS EC2).
-> 3. **Option C (Cloud Run / GCP):** Google Cloud Run + Cloud SQL.
-
-Please let me know your preferred deployment target so I can tailor the configuration files accordingly!
+Please review this plan. Once approved, I will begin implementing the `firecrawl-py` integration!

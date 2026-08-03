@@ -16,6 +16,7 @@ markdownify
 
 # Scraping
 playwright
+firecrawl-py
 
 # LLM & Orchestration
 langchain-core
