@@ -12,3 +12,9 @@
 - [x] Multi-User Isolation: Generate client session UUID (`disha_user_id`) in `frontend/hooks/useProfile.ts`
 - [x] Bind isolated `user_id` to SSE streaming chat requests in `frontend/hooks/useChat.ts`
 - [x] Next.js 14 Production Build Verification (`npm run build` passed)
+- [x] Backend Production Dockerfile (`Dockerfile`) with Playwright Chromium support
+- [x] Database Initialization Script (`storage/init_db.py`)
+- [x] Frontend Standalone Production Dockerfile (`frontend/Dockerfile`)
+- [x] Production Docker Compose configuration (`docker-compose.prod.yml`)
+- [x] Production Environment Variable Template (`.env.example`)
+- [x] Production Deployment Guide (`docs/deployment.md`)

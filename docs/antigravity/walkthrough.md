@@ -1,18 +1,33 @@
-# Master Execution Walkthrough
+# Production Deployment Execution Walkthrough
 
-We have completed the implementation of **`pgvector` Database RAG Integration**, **Multi-User Memory Isolation**, and **Frontend Client Session Binding**.
+We have completed the deployment setup phase for Disha, creating containerization artifacts, production compose orchestration, environment schemas, and comprehensive deployment docs.
 
 ---
 
-## 1. `pgvector` Database Engine & Models
-- **[storage/db.py](file:///home/anmol/Projects/Disha/storage/db.py)**: Created SQLAlchemy 2.0 async engine and ORM models (`JobOpeningModel` & `DocumentChunkModel`).
-- Added native `Vector(768)` embedding columns and `VectorRepository` with `cosine_distance` (`<=>`) vector similarity search methods.
+## 1. Containerization & Deployment Artifacts
 
-## 2. Multi-User Isolation & Frontend Binding
-- **[frontend/hooks/useProfile.ts](file:///home/anmol/Projects/Disha/frontend/hooks/useProfile.ts)**: Added `getOrGenerateUserId()` helper which generates an isolated client session token (`usr_...`) saved in `localStorage`.
-- **[frontend/hooks/useChat.ts](file:///home/anmol/Projects/Disha/frontend/hooks/useChat.ts)**: Bound `user_id` to every POST payload sent to `/api/chat/stream`, ensuring user A's resume profile and chat context never bleed into user B's context.
+### Backend Dockerfile (`Dockerfile`)
+- **[Dockerfile](file:///home/anmol/Projects/Disha/Dockerfile)**: Multi-stage build based on `python:3.12-slim` with system dependencies and Playwright Chromium headless binaries installed.
+- Exposes port `8000`, includes `/health` endpoint check, and launches via Uvicorn.
 
-## 3. Verification & Build Confirmation
-- **Backend Tests:** Ran `.venv/bin/pytest tests/test_security.py` — all 5 SSRF, slug validation, and multi-user tenant isolation tests passed.
-- **Full Test Suite:** Ran all 45 unit/integration tests in `tests/` — 100% passed.
-- **Frontend Production Build:** Ran `npm run build` in `frontend/` — Next.js 14 compiled cleanly with zero TypeScript or type errors.
+### Database Init Script (`storage/init_db.py`)
+- **[storage/init_db.py](file:///home/anmol/Projects/Disha/storage/init_db.py)**: Async database table and `pgvector` extension initializer (`CREATE EXTENSION IF NOT EXISTS vector;`).
+
+### Frontend Dockerfile & Config (`frontend/Dockerfile`)
+- **[frontend/Dockerfile](file:///home/anmol/Projects/Disha/frontend/Dockerfile)**: Multi-stage Next.js 14 production build (`node:20-alpine`) utilizing `standalone` output mode configured in `frontend/next.config.mjs`.
+
+### Production Docker Compose (`docker-compose.prod.yml`)
+- **[docker-compose.prod.yml](file:///home/anmol/Projects/Disha/docker-compose.prod.yml)**: Multi-container orchestration linking `db` (`ankane/pgvector`), `backend` (FastAPI + Playwright), and `frontend` (Next.js 14).
+
+### Secrets & Config Template (`.env.example`)
+- **[.env.example](file:///home/anmol/Projects/Disha/.env.example)**: Production environment template for `GEMINI_API_KEY`, `DATABASE_URL`, `ALLOWED_ORIGINS`, and `NEXT_PUBLIC_API_URL`.
+
+### Deployment Guide (`docs/deployment.md`)
+- **[docs/deployment.md](file:///home/anmol/Projects/Disha/docs/deployment.md)**: Detailed documentation covering PaaS (Render/Railway + Vercel + Supabase), Single VPS Docker Compose, and GCP Cloud Run.
+
+---
+
+## 2. Verification & Commit
+
+- **Frontend Build Check:** Ran `npm run build` with `output: "standalone"` — compiled cleanly.
+- **Git Commit:** Committed and pushed all deployment artifacts to `origin/master`.

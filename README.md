@@ -12,6 +12,7 @@ Disha is a multi-agent system that finds roles, scores them against a personal p
 |-----|---------|
 | **[docs/STATUS.md](./docs/STATUS.md)** | Handoff — what works, gaps, resume |
 | [docs/setup.md](./docs/setup.md) | Env, backend/frontend run |
+| [docs/deployment.md](./docs/deployment.md) | Docker & cloud deployment (Vercel, PaaS, VPS) |
 | [docs/current_state.md](./docs/current_state.md) | Longer architecture audit |
 | [docs/portfolio-product-boundaries.md](./docs/portfolio-product-boundaries.md) | Disha vs Ozyman / Scholar-Loop / IdeaForge |
 | [AGENTS.md](./AGENTS.md) | Guidance for coding agents |
