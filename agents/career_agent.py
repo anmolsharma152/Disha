@@ -478,6 +478,30 @@ def node_career_strategy(state: AgentState) -> AgentState:
     )
     # Keep top N for UI clarity
     recommendations = recommendations[:25]
+
+    # Enrich top recommendation with Gemini LLM Judge evaluation if candidate profile/resume is available
+    if recommendations and (profile.get("resume") or profile.get("skills")):
+        try:
+            from tools.career_tools import evaluate_resume_against_job
+            top_rec = recommendations[0]
+            resume_info = profile.get("resume") or {}
+            preview = resume_info.get("text_preview") if isinstance(resume_info, dict) else ""
+            resume_txt = f"Candidate Profile\nSkills: {', '.join(profile.get('skills') or [])}\nTarget Roles: {', '.join(profile.get('target_roles') or [])}"
+            if preview:
+                resume_txt += f"\nResume Preview:\n{preview}"
+            
+            job_desc = f"Title: {top_rec.get('title')} @ {top_rec.get('company')}\nLocation: {top_rec.get('location')}"
+            eval_res = evaluate_resume_against_job.invoke({
+                "resume_text": resume_txt,
+                "job_description": job_desc,
+                "job_skills_required": top_rec.get("matched_skills", []) + top_rec.get("missing_skills", []),
+            })
+            if eval_res and isinstance(eval_res, dict) and eval_res.get("overall_match_score") is not None:
+                top_rec["llm_judge_eval"] = eval_res
+                logger.info("[Career Strategy] LLM Judge evaluated top role (%s): %s%% match", top_rec.get("title"), eval_res.get("overall_match_score"))
+        except Exception as e:
+            logger.warning("[Career Strategy] LLM Judge evaluation skipped: %s", e)
+
     state["career_recommendations"] = recommendations
 
     logger.info(

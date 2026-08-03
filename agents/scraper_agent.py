@@ -485,6 +485,7 @@ def node_scraper(state: AgentState) -> AgentState:
             "severity": "error",
             "attempt": state["retry_count"].get("scraper", 1),
         })
-        logger.warning("[Scraper] Empty result — recorded error for recovery routing")
+        state["routing_key"] = "error_recovery"
+        logger.warning("[Scraper] Empty result — routing to error_recovery node")
 
     return state
