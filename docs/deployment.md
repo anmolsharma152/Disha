@@ -39,6 +39,11 @@ This guide covers deploying Disha using **Option A** (Vercel + PaaS Backend + Su
    - `NEXT_PUBLIC_API_URL`: `https://your-backend.onrender.com`
 4. Click **Deploy**.
 
+### 4. Keep-Alive & Uptime Strategy (Preventing Sleep & Pauses)
+To prevent Render free tier sleep (15-min idle limit) and Supabase auto-pause (7-day idle limit):
+* **Primary (UptimeRobot):** Create a free HTTP monitor on [UptimeRobot](https://uptimerobot.com) targeting `https://your-backend.onrender.com/health` every **5 minutes**.
+* **Secondary Backup (GitHub Actions):** Populate repository secrets (`RENDER_BACKEND_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`) to enable the `.github/workflows/keep_alive.yml` fallback cron.
+
 ---
 
 ## Option B: Self-Hosted VPS Deployment (Single Docker Compose)
