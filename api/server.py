@@ -103,14 +103,40 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS for frontend integration
+import os
+import time
+from collections import defaultdict
+
+# Read ALLOWED_ORIGINS from environment or default to local dev URLs
+raw_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Simple in-memory rate limiter (token bucket per IP/client)
+_RATE_LIMIT_STORE: Dict[str, List[float]] = defaultdict(list)
+_RATE_LIMIT_MAX_REQUESTS = 30  # Max requests per window
+_RATE_LIMIT_WINDOW_SECONDS = 60.0  # 1 minute window
+
+
+def check_rate_limit(client_id: str) -> None:
+    """Enforce rate limits on sensitive endpoints."""
+    now = time.time()
+    history = _RATE_LIMIT_STORE[client_id]
+    # Filter timestamps within current window
+    _RATE_LIMIT_STORE[client_id] = [t for t in history if now - t < _RATE_LIMIT_WINDOW_SECONDS]
+    if len(_RATE_LIMIT_STORE[client_id]) >= _RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Please wait before making more requests.",
+        )
+    _RATE_LIMIT_STORE[client_id].append(now)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -222,6 +248,7 @@ async def chat_endpoint(request: ChatRequest):
     Main chat endpoint - executes the full Disha pipeline.
     Returns final synthesized answer with citations and confidence.
     """
+    check_rate_limit(request.user_id or "anonymous")
     logger.info(f"Chat request: user={request.user_id}, query_len={len(request.query)}")
 
     try:
@@ -277,6 +304,7 @@ async def chat_stream_endpoint(request: ChatRequest):
     from fastapi.responses import StreamingResponse
     import json
 
+    check_rate_limit(request.user_id or "anonymous")
     logger.info(
         f"Stream chat request: user={request.user_id}, query_len={len(request.query)}"
     )

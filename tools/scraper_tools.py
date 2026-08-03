@@ -5,7 +5,9 @@ LangChain-compatible tools for data acquisition layer.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -14,6 +16,42 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 logger = logging.getLogger("disha.tools")
+
+_BOARD_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def validate_board_slug(board: str) -> str:
+    """Validate board slug to prevent path traversal."""
+    b = str(board or "").strip()
+    if not b or not _BOARD_REGEX.match(b):
+        raise ValueError(f"Invalid board slug: '{board}'. Must contain only alphanumeric characters, dashes, and underscores.")
+    return b
+
+
+def is_safe_url(url: str) -> bool:
+    """Check if URL is safe from SSRF attacks (blocks local & private IP ranges)."""
+    try:
+        parsed = urlparse(str(url))
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        host_lower = hostname.lower()
+        if host_lower in ("localhost", "localhost.localdomain", "local", "169.254.169.254"):
+            return False
+        if host_lower.endswith(".internal") or host_lower.endswith(".local") or host_lower.endswith(".localhost"):
+            return False
+        # Check IP range if hostname is IP
+        try:
+            ip = ipaddress.ip_address(host_lower)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+                return False
+        except ValueError:
+            pass  # Normal domain name
+        return True
+    except Exception:
+        return False
 
 
 # ──────────────────────────────────────────────────────────────
@@ -33,11 +71,14 @@ class FetchRSSInput(BaseModel):
     @field_validator("feed_url", mode="before")
     @classmethod
     def validate_feed_url(cls, v: str) -> str:
-        """Basic URL validation."""
-        parsed = urlparse(str(v))
+        """Basic URL and SSRF validation."""
+        s = str(v)
+        parsed = urlparse(s)
         if not parsed.scheme or not parsed.netloc:
             raise ValueError("Invalid feed URL")
-        return v
+        if not is_safe_url(s):
+            raise ValueError(f"SSRF Protection: Access to URL '{s}' is blocked.")
+        return s
 
 
 class RSSArticle(BaseModel):
@@ -200,6 +241,14 @@ class PlaywrightScrapeInput(BaseModel):
     extract_markdown: bool = True
     user_agent: Optional[str] = None
 
+    @field_validator("url", mode="before")
+    @classmethod
+    def validate_playwright_url(cls, v: str) -> str:
+        s = str(v)
+        if not is_safe_url(s):
+            raise ValueError(f"SSRF Protection: Access to URL '{s}' is blocked.")
+        return s
+
 
 class BeautifulSoupScrapeInput(BaseModel):
     """Input for BeautifulSoup-based scraping."""
@@ -347,6 +396,11 @@ class SearchGreenhouseInput(BaseModel):
     )
     max_results: int = Field(20, ge=1, le=100, description="Maximum jobs to return")
 
+    @field_validator("board", mode="before")
+    @classmethod
+    def validate_board(cls, v: str) -> str:
+        return validate_board_slug(v)
+
 
 class SearchLeverInput(BaseModel):
     """Input schema for search_lever_jobs tool."""
@@ -359,6 +413,11 @@ class SearchLeverInput(BaseModel):
         None, description="Optional keyword filter applied client-side"
     )
     max_results: int = Field(20, ge=1, le=100, description="Maximum jobs to return")
+
+    @field_validator("board", mode="before")
+    @classmethod
+    def validate_board(cls, v: str) -> str:
+        return validate_board_slug(v)
 
 
 class SearchGreenhouseOutput(BaseModel):
