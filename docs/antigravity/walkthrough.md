@@ -1,19 +1,18 @@
-# Phase 2 Core Intelligence Walkthrough
+# Master Execution Walkthrough
 
-We've completely removed the stubs and wired up real generative intelligence across the Disha architecture. Here is a breakdown of what was accomplished:
+We have completed the implementation of **`pgvector` Database RAG Integration**, **Multi-User Memory Isolation**, and **Frontend Client Session Binding**.
 
-## 1. Live Playwright Scraping & LLM Structuring
-- **Headless Chromium Automation**: Installed `playwright` and updated `tools/scraper_tools.py` to launch a headless browser, navigate to dynamic JavaScript-heavy career pages, wait for the DOM to load, and extract the raw HTML.
-- **Clean Markdown Conversion**: Added `markdownify` and `beautifulsoup4` to strip out noisy `<script>` and `<style>` tags, converting the raw HTML into semantic Markdown.
-- **Gemini Structured Output**: Modified `agents/scraper_agent.py`. It now takes the Playwright markdown and feeds it to `gemini-2.5-flash` using `.with_structured_output(JobExtraction)`. The LLM natively parses the messy text into perfect, validated Pydantic `JobOpening` schemas.
+---
 
-## 2. LLM Resume Evaluator (LLM as a Judge)
-- **Dynamic Prompting**: Updated `tools/career_tools.py` to abandon hardcoded string counting. It now injects the full job description, extracted tech stack, and the candidate's raw resume into a massive prompt.
-- **Intelligent Scoring**: The `EvaluateResumeOutput` schema is now powered by Gemini 2.5 Flash acting as an expert technical recruiter. It dynamically analyzes strengths, identifies critical gaps, and provides an overall confidence match score.
+## 1. `pgvector` Database Engine & Models
+- **[storage/db.py](file:///home/anmol/Projects/Disha/storage/db.py)**: Created SQLAlchemy 2.0 async engine and ORM models (`JobOpeningModel` & `DocumentChunkModel`).
+- Added native `Vector(768)` embedding columns and `VectorRepository` with `cosine_distance` (`<=>`) vector similarity search methods.
 
-## 3. Vector Database Activation (pgvector)
-- **Postgres Docker Container**: Created a `docker-compose.yml` file pointing to `ankane/pgvector` to spin up a local vector-capable PostgreSQL instance.
-- **Native Cosine Distance**: Updated `storage/db.py`. Replaced the stubbed `ARRAY(Float)` and python-side `numpy` dot-products with native SQLAlchemy `Vector(768)` types and `cosine_distance` operators (`<=>`), allowing hyper-fast semantic RAG queries.
+## 2. Multi-User Isolation & Frontend Binding
+- **[frontend/hooks/useProfile.ts](file:///home/anmol/Projects/Disha/frontend/hooks/useProfile.ts)**: Added `getOrGenerateUserId()` helper which generates an isolated client session token (`usr_...`) saved in `localStorage`.
+- **[frontend/hooks/useChat.ts](file:///home/anmol/Projects/Disha/frontend/hooks/useChat.ts)**: Bound `user_id` to every POST payload sent to `/api/chat/stream`, ensuring user A's resume profile and chat context never bleed into user B's context.
 
-> [!TIP]
-> To test the database, run `docker compose up -d` in the project root to start the `pgvector` container!
+## 3. Verification & Build Confirmation
+- **Backend Tests:** Ran `.venv/bin/pytest tests/test_security.py` — all 5 SSRF, slug validation, and multi-user tenant isolation tests passed.
+- **Full Test Suite:** Ran all 45 unit/integration tests in `tests/` — 100% passed.
+- **Frontend Production Build:** Ran `npm run build` in `frontend/` — Next.js 14 compiled cleanly with zero TypeScript or type errors.

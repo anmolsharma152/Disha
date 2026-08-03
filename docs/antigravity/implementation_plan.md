@@ -1,64 +1,92 @@
-# Phase 2 Core Intelligence Implementation
+# Disha Master Implementation Plan
 
-This plan outlines the steps to complete the final major features of Phase 2 for the Disha project. This will transition the architecture from using stubs and keyword-matching to full-fledged LLM-driven execution and vector search.
-
-## User Review Required
-> [!IMPORTANT]
-> This requires adding Docker to your workflow. I will create a `docker-compose.yml` to spin up a PostgreSQL instance with the `pgvector` extension locally. 
-> Ensure you have Docker installed on your machine.
-
-> [!WARNING]
-> Live scraping with Playwright can be brittle due to bot protection on sites like LinkedIn and Naukri. We will focus the initial implementation on standard company career pages (e.g., Swiggy, Cred, Razorpay) which are typically less heavily shielded.
-
-## Proposed Changes
+This implementation plan integrates security audit remediations, core graph wiring, multi-user isolation & memory architecture, frontend user onboarding UI, and testing/evals/observability.
 
 ---
 
-### Playwright Scraper & LLM Extraction
-Currently, `fetch_webpage_playwright` in `scraper_tools.py` returns a hardcoded stub.
-
-#### [MODIFY] [requirements.txt](file:///home/anmol/Projects/Disha/requirements.txt)
-- Add `playwright`, `beautifulsoup4`, and `markdownify`.
-
-#### [MODIFY] [tools/scraper_tools.py](file:///home/anmol/Projects/Disha/tools/scraper_tools.py)
-- Implement actual headless browser navigation using Playwright.
-- Wait for the DOM to load, extract HTML, and convert it to clean Markdown.
-
-#### [MODIFY] [agents/scraper_agent.py](file:///home/anmol/Projects/Disha/agents/scraper_agent.py)
-- Use Gemini 2.5 Flash's structured output capabilities (`with_structured_output`) to parse the scraped Markdown directly into the `JobOpening` Pydantic schema, eliminating regex/brittle parsing.
+## Zero Hardcoding Guarantee
+- **Verified Status:** `profiles/default.yaml` and `tools/profile.py` contain **zero** hardcoded user details, candidate names, or personal recommendations.
+- Product defaults remain completely generic (`skills: []`, `target_cities: []`, `target_roles: []`). All personalization is strictly user-agnostic and derived dynamically at runtime from the active `user_id`'s uploaded resume and explicit query/preference context.
 
 ---
 
-### LLM-Based Resume Evaluator
-Currently, `evaluate_resume_against_job` in `career_tools.py` uses simple string `.count()` keyword matching to evaluate skills.
+## Work Stream 1: Security Hardening
 
-#### [MODIFY] [requirements.txt](file:///home/anmol/Projects/Disha/requirements.txt)
-- Add `PyPDF2` for local resume ingestion.
+### 1. SSRF & Path Traversal Prevention
+- **[MODIFY] [tools/scraper_tools.py](file:///home/anmol/Projects/Disha/tools/scraper_tools.py)**
+  - Add `is_safe_url(url: str)` helper to block internal/private IP ranges (`127.0.0.1`, `10.0.0.0/8`, `169.254.169.254`, `192.168.0.0/16`) and non-HTTP/HTTPS schemes.
+  - Enforce strict slug validation regex (`^[a-zA-Z0-9_-]+$`) on `board` inputs in `search_greenhouse_jobs` and `search_lever_jobs`.
 
-#### [MODIFY] [tools/career_tools.py](file:///home/anmol/Projects/Disha/tools/career_tools.py)
-- Replace `extract_skills_from_text` and `evaluate_resume_against_job` stubs.
-- Instantiate a Gemini 2.5 Flash LLM Chain.
-- Pass the resume text and job description to the LLM, instructing it to act as an "LLM Judge" and output the `EvaluateResumeOutput` JSON schema natively.
+### 2. API Gateway Protection
+- **[MODIFY] [api/server.py](file:///home/anmol/Projects/Disha/api/server.py)**
+  - Restrict `CORSMiddleware` with configurable `ALLOWED_ORIGINS` (defaulting to `http://localhost:3000`).
+  - Add endpoint rate-limiting middleware (`slowapi` or token bucket) on `/api/chat` and `/api/chat/stream`.
+
+### 3. Prompt Injection Boundaries
+- **[MODIFY] [agents/scraper_agent.py](file:///home/anmol/Projects/Disha/agents/scraper_agent.py)** & **[tools/career_tools.py](file:///home/anmol/Projects/Disha/tools/career_tools.py)**
+  - Wrap raw scraped text and candidate resumes inside `<untrusted_content>` tags and reinforce system prompts to prevent embedded instruction hijacking.
 
 ---
 
-### Vector Database Activation (pgvector)
-Currently, `storage/db.py` falls back to SQLite and performs Python-side `numpy` dot-product operations for semantic search.
+## Work Stream 2: Core Graph & Architectural Polish
 
-#### [NEW] [docker-compose.yml](file:///home/anmol/Projects/Disha/docker-compose.yml)
-- Create a Docker Compose file defining a `pgvector` container (using the `ankane/pgvector` image) exposed on port 5432.
+### 1. Live `pgvector` Semantic Search Connection
+- **[MODIFY] [storage/db.py](file:///home/anmol/Projects/Disha/storage/db.py)** & **[agents/career_agent.py](file:///home/anmol/Projects/Disha/agents/career_agent.py)**
+  - Connect existing `storage/db.py` SQLAlchemy async models (`Vector(768)` columns & `cosine_distance` `<=>` queries) directly to the live `/api/chat` path for semantic fallback search.
 
-#### [MODIFY] [storage/db.py](file:///home/anmol/Projects/Disha/storage/db.py)
-- Change default `DATABASE_URL` to point to the local `postgresql+asyncpg://` container.
-- Integrate `GoogleGenerativeAIEmbeddings` to generate 768-dimensional embeddings for jobs and documents.
-- Refactor the `vector_search` methods to use native SQLAlchemy `cosine_distance` (`<=>`) operators within PostgreSQL.
+### 2. Wiring the LLM Resume Judge into the Graph
+- **[MODIFY] [tools/career_tools.py](file:///home/anmol/Projects/Disha/tools/career_tools.py)** & **[agents/career_agent.py](file:///home/anmol/Projects/Disha/agents/career_agent.py)**
+  - Wire `evaluate_resume_against_job` into `node_career_strategy` in `agents/career_agent.py` to run automatically whenever a user resume profile is loaded in `AgentState`.
 
-## Verification Plan
+### 3. Fixing Error Recovery Node Wiring
+- **[MODIFY] [agents/scraper_agent.py](file:///home/anmol/Projects/Disha/agents/scraper_agent.py)** & **[main.py](file:///home/anmol/Projects/Disha/main.py)**
+  - Populate `state["error_log"]` on tool failures and activate `node_error_recovery` instead of dead-ending.
 
-### Automated Tests
-- Run `python tools/scraper_tools.py` to verify Playwright successfully fetches and renders a live dynamic webpage.
-- Run `python tools/career_tools.py` to verify the Gemini 2.5 Flash judge successfully scores a sample resume.
-- Run `docker compose up -d` followed by a database migration script to ensure `pgvector` initializes successfully.
+### 4. Resolving Status Discrepancies & Date Stamp Drift
+- **[MODIFY] [README.md](file:///home/anmol/Projects/Disha/README.md)**, **[docs/STATUS.md](file:///home/anmol/Projects/Disha/docs/STATUS.md)** & **[docs/current_state.md](file:///home/anmol/Projects/Disha/docs/current_state.md)**
+  - Align component status tables across docs and update date headers to **August 2026**.
 
-### Manual Verification
-- Execute `python main.py` with an end-to-end query using the newly ingested Playwright jobs and Vector DB embeddings. Verify output in the terminal.
+---
+
+## Work Stream 3: Multi-User Isolation & Long-Term Memory Architecture
+
+### 1. Strict Per-User Storage & Context Isolation (No Leakage)
+- **[MODIFY] [storage/user_memory.py](file:///home/anmol/Projects/Disha/storage/user_memory.py)** & **[api/server.py](file:///home/anmol/Projects/Disha/api/server.py)**
+  - Replace hardcoded fallback to `"default"` user ID with mandatory, sanitized session/user tokens (e.g. UUID v4 generated on frontend or passed via headers).
+  - Isolate memory storage under `data/user_memory_{user_id}.json` (or PostgreSQL `user_profiles` table) ensuring strict tenant isolation and zero cross-user context bleeding.
+  - Enforce explicit `user_id` checks on `GET /api/profile`, `POST /api/profile/resume`, and `DELETE /api/profile`.
+
+---
+
+## Work Stream 4: Frontend New User Onboarding & User Switcher UI
+
+### 1. Next.js Onboarding & Resume Upload UI
+- **[MODIFY] [frontend/](file:///home/anmol/Projects/Disha/frontend/)**
+  - Add an **Onboarding Drawer / Modal** for first-time or new users:
+    - Resume Drag-and-Drop Uploader (PDF / TXT) connecting to `POST /api/profile/resume`.
+    - Profile preferences form (Target Roles, Target Cities, Min LPA Floor, Skills).
+  - Add a **Session / Profile Badge** in the top navigation bar showing active user ID, loaded skill count, and an "Upload New Resume / Switch User" option.
+  - Persist `disha_user_id` in browser `localStorage` and include `user_id` in every SSE chat request (`/api/chat/stream`).
+
+---
+
+## Work Stream 5: Testing, Evals & Observability
+
+### 1. Automated Test Suite (`pytest`)
+- **[NEW] `tests/test_security.py`**: Verify SSRF blocking, slug regex, CORS headers, and multi-user memory isolation (prevent cross-user leakage).
+- **[NEW] `tests/test_api_server.py`**: Test `/api/chat`, `/api/chat/stream`, and resume upload endpoints per user ID.
+- **[NEW] `tests/test_career_agent.py`**: Validate match scoring and LLM judge invocation.
+
+### 2. LLM Evaluation Suite
+- **Extraction Accuracy Eval**: Benchmark Gemini job extraction precision/recall on 10 sample JDs.
+- **Scoring Consistency Eval**: Benchmark `evaluate_resume_against_job` score variance (< 5%) across multiple runs at `temperature=0.1`.
+
+### 3. Observability & Telemetry
+- Enable **LangSmith / OpenTelemetry** tracing (`LANGCHAIN_TRACING_V2=true`) to track step execution, latency, and tool inputs.
+- Compute prompt/completion token usage and update `state["total_tokens"]` and `state["total_cost_usd"]` per execution.
+
+---
+
+## User Review & Execution
+
+Please review the updated master plan incorporating multi-user memory isolation and the frontend onboarding UI. Let me know when you are ready to begin execution!

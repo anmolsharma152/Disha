@@ -1,8 +1,14 @@
-- [x] Update `requirements.txt` and install dependencies (Playwright, PyPDF2, etc.)
-- [x] Initialize Playwright browsers (`playwright install`)
-- [x] Implement Playwright scraping in `tools/scraper_tools.py`
-- [x] Hook Playwright to Gemini JSON extraction in `agents/scraper_agent.py`
-- [x] Refactor `evaluate_resume_against_job` to use Gemini LLM judge in `tools/career_tools.py`
-- [x] Create `docker-compose.yml` for pgvector
-- [x] Update `storage/db.py` to use real PostgreSQL vector search and Gemini embeddings
-- [x] Verify endpoints and manual testing
+# Disha Implementation Task List
+
+- [x] SSRF Protection & URL Validation (`is_safe_url`) in `tools/scraper_tools.py`
+- [x] Path Traversal Regex Validation (`validate_board_slug`) in `tools/scraper_tools.py`
+- [x] Restrict CORS `ALLOWED_ORIGINS` in `api/server.py`
+- [x] Rate Limiting Middleware (`check_rate_limit`) on `/api/chat` endpoints in `api/server.py`
+- [x] Prompt Injection Framing (<untrusted_content> XML tags) in `tools/career_tools.py`
+- [x] Wire Error Recovery Node routing (`state["routing_key"] = "error_recovery"`) in `agents/scraper_agent.py`
+- [x] Wire LLM Resume Judge (`evaluate_resume_against_job`) into `agents/career_agent.py`
+- [x] Security & Multi-User Isolation Test Suite (`tests/test_security.py`)
+- [x] Create `storage/db.py` with SQLAlchemy 2.0 models & `Vector(768)` `cosine_distance` RAG query methods
+- [x] Multi-User Isolation: Generate client session UUID (`disha_user_id`) in `frontend/hooks/useProfile.ts`
+- [x] Bind isolated `user_id` to SSE streaming chat requests in `frontend/hooks/useChat.ts`
+- [x] Next.js 14 Production Build Verification (`npm run build` passed)
