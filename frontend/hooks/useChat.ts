@@ -5,6 +5,7 @@ import { useState, useCallback, useRef, useEffect } from "react"
 import type { JobOpening, CareerRecommendation } from "@/types/api"
 import { API_ENDPOINTS, DEFAULT_HEADERS } from "@/lib/api"
 import { parseSSEStream } from "@/lib/sse"
+import { getOrGenerateUserId } from "./useProfile"
 
 export interface UseChatReturn {
   sendMessage: (query: string) => Promise<void>
@@ -51,11 +52,13 @@ export function useChat(): UseChatReturn {
     abortRef.current = controller
 
     try {
+      const userId = getOrGenerateUserId()
       const response = await fetch(API_ENDPOINTS.CHAT_STREAM, {
         method: "POST",
         headers: DEFAULT_HEADERS,
         body: JSON.stringify({
           query,
+          user_id: userId,
           stream: true,
         }),
         signal: controller.signal,

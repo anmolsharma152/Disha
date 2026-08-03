@@ -25,11 +25,26 @@ export interface ProfileMemory {
   skill_count: number
 }
 
-export function useProfile(userId = "default") {
+export function getOrGenerateUserId(): string {
+  if (typeof window === "undefined") return "default"
+  let id = localStorage.getItem("disha_user_id")
+  if (!id) {
+    id = "usr_" + Math.random().toString(36).substring(2, 11) + "_" + Date.now().toString(36)
+    localStorage.setItem("disha_user_id", id)
+  }
+  return id
+}
+
+export function useProfile(overrideUserId?: string) {
+  const [userId, setUserId] = useState<string>("default")
   const [memory, setMemory] = useState<ProfileMemory | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setUserId(overrideUserId || getOrGenerateUserId())
+  }, [overrideUserId])
 
   const refresh = useCallback(async () => {
     setError(null)
@@ -97,6 +112,7 @@ export function useProfile(userId = "default") {
   }, [userId, refresh])
 
   return {
+    userId,
     memory,
     loading,
     uploading,
