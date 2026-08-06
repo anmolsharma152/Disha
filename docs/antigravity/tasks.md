@@ -33,19 +33,19 @@
 
 ## Active & Upcoming Implementation Work Streams
 
-- [ ] **Stream 5: Claude-Style Agent Visualization & Timers (Frontend UX):**
+- [ ] **Stream 5: Dynamic Resume-Derived Experience Boundaries (Zero Hardcoding):**
+  - Parse candidate's experience years (e.g. 3.1 yrs) & seniority level from ingested resume (`tools/career_tools.py`).
+  - Compute dynamic experience boundary (`[exp_years - 1.5, exp_years + 2.5]` yrs).
+  - Dynamically filter and penalize roles outside candidate's ingested boundary in `agents/career_agent.py`.
+
+- [ ] **Stream 6: Claude-Style Agent Visualization & Timers (Frontend UX):**
   - Build `AgentExecutionVisualizer.tsx` with animated spinning wheels, timers (`00:05s`), and hourglasses.
   - Stream fine-grained sub-step progress logs via SSE (`"Scraping PhonePe..."`, `"Evaluating 25 roles..."`).
   - Add expandable "Thinking & Tool Log" drawers for full transparency.
 
-- [ ] **Stream 6: Multi-Turn Conversational Chat Feed (Frontend UX):**
+- [ ] **Stream 7: Multi-Turn Conversational Chat Feed (Frontend UX):**
   - Build `ChatFeed.tsx` in Next.js UI to preserve multi-turn message history threads.
   - Render user prompt bubbles, assistant text responses, and attached job artifacts in a scrollable chat stream.
-
-- [ ] **Stream 7: Experience Seniority Guardrails (Title Matching):**
-  - Parse candidate's experience years (e.g. 3.1 yrs).
-  - Automatically filter out high-seniority titles (`Senior Staff`, `Principal`, `Director`, `VP`, `Chief of Staff`) for candidates with < 5 yrs experience.
-  - Penalize experience gap mismatch in `agents/career_agent.py`.
 
 - [ ] **Stream 8: Targeted Company Query Extraction (e.g. "Sarvam AI new postings"):**
   - Extract company intent from user queries (*Sarvam AI, Krutrim, PhysicsWallah*) in `agents/supervisor_agent.py`.

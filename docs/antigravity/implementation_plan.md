@@ -1,6 +1,6 @@
 # Disha Master Integrated Implementation & Architecture Plan
 
-This master document consolidates all planned and active work streams for Disha — combining security, core graph logic, multi-tenant isolation, production deployment, Firecrawl cloud scraping, experience-level guardrails, zero-hardcoding audits, and Claude-style live agent visualization.
+This master document consolidates all planned and active work streams for Disha — combining security, core graph logic, multi-tenant isolation, production deployment, Firecrawl cloud scraping, dynamic resume-derived experience boundaries, zero-hardcoding audits, and Claude-style live agent visualization.
 
 ---
 
@@ -8,44 +8,62 @@ This master document consolidates all planned and active work streams for Disha 
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                       DISHA ARCHITECTURE & UX PIPELINE                      │
+│                       DISHA MASTER INTEGRATED PIPELINE                      │
 └─────────────────────────────────────────────────────────────────────────────┘
-                                       │
-                  1. Multi-Tenant Session & Zero-Trust Security
-                  ├─ Strict session UUID (disha_user_id) per browser
-                  ├─ SSRF (is_safe_url) & Path Traversal Guard
-                  └─ Prompt Injection (<untrusted_content> XML)
-                                       │
-                                       ▼
-                  2. Dynamic Scraper & Firecrawl Ingestion Layer
-                  ├─ ATS JSON APIs (Greenhouse & Lever)
-                  ├─ Firecrawl Cloud API (search, map_url, scrape)
-                  ├─ Targeted Company Query Extraction (e.g. Sarvam AI)
-                  └─ Parallel Fetching via asyncio.gather() (< 15s)
-                                       │
-                                       ▼
-                  3. Experience Seniority Guardrails & Matching
-                  ├─ Parse candidate experience_years (e.g. 3.1 yrs)
-                  ├─ Filter out Senior Staff, Principal, Director, VP
-                  └─ LLM Resume Judge (evaluate_resume_against_job)
-                                       │
-                                       ▼
-                  4. Claude-Style Agent Visualizer & Chat Feed UI
-                  ├─ Spinning wheels / timers / hourglasses per agent step
-                  ├─ Real-time sub-step status stream (SSE logs)
-                  ├─ Expandable "Thinking / Progress Log" drawers
-                  └─ Multi-Turn Conversational Chat Feed (ChatFeed.tsx)
-                                       │
-                                       ▼
-                  5. Production Deployment & Hybrid Keep-Alive
-                  ├─ Dockerized FastAPI + Next.js 14 Standalone
-                  ├─ Supabase (pgvector) + Render (Docker Web Service)
-                  └─ UptimeRobot (Primary 5m) + GitHub Actions (Secondary)
+  │
+  ├─ 1. Multi-Tenant Session & Zero-Trust Security
+  │   ├─ Strict session UUID (disha_user_id) per browser
+  │   ├─ SSRF (is_safe_url) & Path Traversal Guard
+  │   └─ Prompt Injection (<untrusted_content> XML)
+  │
+  ├─ 2. Dynamic Resume-Derived Experience Boundaries (ZERO HARDCODING)
+  │   ├─ Ingest candidate experience_years & seniority_level dynamically from resume
+  │   ├─ Compute dynamic experience boundary: (e.g. [exp - 1.5, exp + 2.5] yrs)
+  │   └─ Adaptively filter/penalize titles out of candidate's ingested boundary
+  │
+  ├─ 3. Dynamic Scraper & Firecrawl Ingestion Layer
+  │   ├─ ATS JSON APIs (Greenhouse & Lever)
+  │   ├─ Firecrawl Cloud API (search, map_url, scrape)
+  │   ├─ Targeted Company Query Extraction (e.g. Sarvam AI)
+  │   └─ Parallel Fetching via asyncio.gather() (< 15s)
+  │
+  ├─ 4. Claude-Style Agent Visualizer & Multi-Turn Chat Feed (Frontend UX)
+  │   ├─ Spinning wheels / timers / hourglasses (00:04s) per step
+  │   ├─ Real-time sub-step status stream (SSE logs)
+  │   ├─ Expandable "Thinking / Progress Log" drawers
+  │   └─ Multi-Turn Conversational Chat Feed (ChatFeed.tsx)
+  │
+  └─ 5. Production Deployment & Hybrid Keep-Alive Architecture
+      ├─ Dockerized FastAPI + Next.js 14 Standalone (Vercel + Render + Supabase)
+      └─ UptimeRobot (Primary 5m) + GitHub Actions keep_alive.yml (Secondary)
 ```
 
 ---
 
-## Stream 1: Claude-Style Agent Visualization & Multi-Turn Chat Feed (Frontend UX)
+## Stream 1: Dynamic Resume-Derived Experience Boundaries (Zero Hardcoding)
+
+### Objectives:
+- Eliminate hardcoded experience thresholds. Experience boundaries are **computed dynamically from the candidate's ingested resume**.
+
+### Dynamic Ingestion & Boundary Logic:
+1. **Resume Ingestion (`tools/career_tools.py`):**
+   * During LLM resume extraction, extract:
+     * `experience_years`: Total professional years (e.g. 3.1 yrs, 1.0 yrs, or 12.0 yrs).
+     * `seniority_level`: Derived candidate level (`entry`, `mid`, `senior`, `principal`).
+2. **Dynamic Boundary Computation:**
+   * Compute dynamic experience range: `[exp_years - 1.5, exp_years + 2.5]` years.
+   * If a candidate with 3.1 years experience uploads their resume:
+     * Allowed Range: `1.6` to `5.6` years.
+     * Dynamic Title Exclusions: Senior Staff, Principal, Director, VP, Chief of Staff (automatically filtered out).
+   * If a candidate with 14 years experience uploads their resume:
+     * Allowed Range: `12.5` to `16.5+` years.
+     * Dynamic Title Exclusions: Intern, SDE-1, Junior Developer (automatically filtered out).
+3. **Career Agent Penalty (`agents/career_agent.py`):**
+   * Dynamically penalize job openings whose experience requirements fall outside the candidate's ingested boundary.
+
+---
+
+## Stream 2: Claude-Style Agent Visualization & Multi-Turn Chat Feed (Frontend UX)
 
 ### Objectives:
 - **Live Activity Drawers & Timers:** Replace static *"Planning new steps..."* text with animated spinners, timers (`00:04s`), and live status summaries showing exactly what the agent is doing at any point (similar to Claude / ChatGPT thinking drops).
@@ -57,25 +75,11 @@ This master document consolidates all planned and active work streams for Disha 
   - Shows spinning wheels / hourglass icons and real-time timers for active agents.
   - Expandable drawer containing live sub-step logs:
     - `⏳ [Scraper] Searching Firecrawl for 'Sarvam AI new postings'... (00:03s)`
-    - `⏳ [Scraper] Ingesting 28 jobs from Y Combinator WorkAtAStartup... (00:06s)`
-    - `⏳ [Career Strategy] Evaluating candidate profile (~3.1 yrs exp) against 25 openings... (00:09s)`
+    - `⏳ [Career Strategy] Computing candidate experience boundary (3.1 yrs)... (00:06s)`
+    - `⏳ [Career Strategy] Evaluating candidate profile against 25 openings... (00:09s)`
 - **[NEW] [frontend/components/chat/ChatFeed.tsx](file:///home/anmol/Projects/Disha/frontend/components/chat/ChatFeed.tsx):**
   - Renders user prompt bubbles and assistant message turns chronologically.
   - Embeds interactive artifact panels (Top Matches Grid, Summary, All Openings) inside assistant response blocks.
-
----
-
-## Stream 2: Experience Seniority Guardrails & Title Matching
-
-### Objectives:
-- Eliminate irrelevant senior-level listings (*"Senior Staff Software Engineer"*, *"Director"*, *"Chief of Staff"*) for candidates with junior/mid-level experience.
-
-### Key Rules:
-- **Candidate Experience Extraction:** Automatically derive `experience_years` from uploaded resume or profile (e.g. 3.1 years).
-- **Seniority Exclusion Filter:**
-  - If `candidate.experience_years < 5.0`: Automatically exclude titles containing `Senior Staff`, `Staff Engineer`, `Principal`, `Director`, `Vice President`, `VP`, `Head of`, `Chief of Staff`, `Lead (10+ yrs)`.
-  - Target matching roles: `AI Engineer`, `Machine Learning Engineer`, `Software Development Engineer II (SDE-2)`, `Associate AI Engineer`, `Applied AI Specialist`.
-- **Career Agent Score Penalty:** Apply heavy penalty in `agents/career_agent.py` for jobs requiring experience > 2 years above the candidate's current profile.
 
 ---
 
@@ -130,7 +134,7 @@ This master document consolidates all planned and active work streams for Disha 
 
 ## 2. Verification & Testing Plan
 
-1. **Seniority Guardrail Verification:** Run query with 3.1 yrs experience profile and verify `Senior Staff`, `Director`, and `Chief of Staff` roles are filtered out.
+1. **Dynamic Seniority Guardrail Verification:** Test candidate with 3.1 yrs vs 12 yrs and verify experience boundaries adapt dynamically to ingested resume.
 2. **Claude-Style Visualizer Verification:** Test timers, spinners, and expandable thinking drawers during live chat streams.
 3. **Multi-Turn Chat Feed Verification:** Verify previous conversation turns remain visible in the UI history.
 4. **Targeted Scrape Verification:** Query *"Sarvam AI new postings"* and verify Firecrawl fetches Sarvam AI job listings.
@@ -143,4 +147,4 @@ This master document consolidates all planned and active work streams for Disha 
 
 ## User Review Required
 
-Please review this master integrated plan covering all 6 architectural streams. Once approved, implementation will proceed systematically across backend guardrails and frontend visualization!
+Please review this updated master plan. Experience boundaries are now fully dynamic and derived directly from ingested candidate resumes!
