@@ -145,6 +145,9 @@ def resolve_profile(
         from storage.user_memory import get_profile
 
         memory_profile = get_profile(str(uid)) or {}
+        if not memory_profile and str(uid) != "default":
+            # Fallback to default user memory if custom session ID has no memory saved
+            memory_profile = get_profile("default") or {}
     except Exception as e:
         logger.debug("[Profile] Memory load skipped: %s", e)
 
