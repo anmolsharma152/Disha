@@ -36,14 +36,15 @@ export function getOrGenerateUserId(): string {
 }
 
 export function useProfile(overrideUserId?: string) {
-  const [userId, setUserId] = useState<string>("default")
+  const [userId, setUserId] = useState<string>(() => overrideUserId || (typeof window !== "undefined" ? getOrGenerateUserId() : "default"))
   const [memory, setMemory] = useState<ProfileMemory | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setUserId(overrideUserId || getOrGenerateUserId())
+    const activeId = overrideUserId || getOrGenerateUserId()
+    setUserId(activeId)
   }, [overrideUserId])
 
   const refresh = useCallback(async () => {
