@@ -1,45 +1,58 @@
-# Disha Implementation Task List
+# Disha Master Implementation Task List
 
-## Completed Infrastructure & Core Features
+## Stream 1: Security & Multi-User Memory Isolation (Completed)
 - [x] SSRF Protection & URL Validation (`is_safe_url`) in `tools/scraper_tools.py`
 - [x] Path Traversal Regex Validation (`validate_board_slug`) in `tools/scraper_tools.py`
 - [x] Restrict CORS `ALLOWED_ORIGINS` in `api/server.py`
 - [x] Rate Limiting Middleware (`check_rate_limit`) on `/api/chat` endpoints in `api/server.py`
 - [x] Prompt Injection Framing (<untrusted_content> XML tags) in `tools/career_tools.py`
-- [x] Wire Error Recovery Node routing (`state["routing_key"] = "error_recovery"`) in `agents/scraper_agent.py`
-- [x] Wire LLM Resume Judge (`evaluate_resume_against_job`) into `agents/career_agent.py`
 - [x] Security & Multi-User Isolation Test Suite (`tests/test_security.py`)
-- [x] Create `storage/db.py` with SQLAlchemy 2.0 models & `Vector(768)` `cosine_distance` RAG query methods
 - [x] Multi-User Isolation: Generate client session UUID (`disha_user_id`) in `frontend/hooks/useProfile.ts`
 - [x] Synchronize initial `userId` state in `useProfile.ts` with `getOrGenerateUserId` to prevent memory desync
-- [x] Next.js 14 Production Build Verification (`npm run build` passed)
+
+## Stream 2: Core Graph, LLM Resume Judge & pgvector (Completed)
+- [x] Wire Error Recovery Node routing (`state["routing_key"] = "error_recovery"`) in `agents/scraper_agent.py`
+- [x] Wire LLM Resume Judge (`evaluate_resume_against_job`) into `agents/career_agent.py`
+- [x] Create `storage/db.py` with SQLAlchemy 2.0 models & `Vector(768)` `cosine_distance` RAG query methods
+
+## Stream 3: Cloud Ingestion & Firecrawl Integration (Completed)
+- [x] Firecrawl Cloud Scraper Integration (`tools/firecrawl_tools.py`)
+- [x] Firecrawl Web Search Integration in `agents/scraper_agent.py`
+- [x] Firecrawl Test Suite (`tests/test_firecrawl.py`)
+
+## Stream 4: Production Deployment & Keep-Alive (Completed)
 - [x] Backend Production Dockerfile (`Dockerfile`) with Playwright Chromium support
 - [x] Database Initialization Script (`storage/init_db.py`)
 - [x] Frontend Standalone Production Dockerfile (`frontend/Dockerfile`)
 - [x] Production Docker Compose configuration (`docker-compose.prod.yml`)
 - [x] Production Environment Variable Template (`.env.example`)
 - [x] Production Deployment Guide (`docs/deployment.md`)
-- [x] Firecrawl Cloud Scraper Integration (`tools/firecrawl_tools.py`)
-- [x] Firecrawl Web Search Integration in `agents/scraper_agent.py`
-- [x] Firecrawl Test Suite (`tests/test_firecrawl.py`)
 - [x] GitHub Actions Keep-Alive Workflow (`.github/workflows/keep_alive.yml`)
 
 ---
 
-## Crucial Issues & Feature Roadmap (Logged for Next Sprint)
+## Active & Upcoming Implementation Work Streams
 
-- [ ] **1. Frontend Agent Execution Visualization & Live Sub-Step Progress:**
-  - Build real-time agent workflow visualizer in Next.js UI (`Supervisor → Scraper → Career Strategy → Synthesize`).
-  - Stream fine-grained sub-step progress logs via SSE (e.g. *"Scraping Greenhouse (PhonePe)..."*, *"Firecrawl web search..."*, *"Evaluating resume against 25 roles..."*) instead of static *"Planning new steps..."*.
-  - Show interactive agent state badges, active scraper sources, and step timings.
+- [ ] **Stream 5: Claude-Style Agent Visualization & Timers (Frontend UX):**
+  - Build `AgentExecutionVisualizer.tsx` with animated spinning wheels, timers (`00:05s`), and hourglasses.
+  - Stream fine-grained sub-step progress logs via SSE (`"Scraping PhonePe..."`, `"Evaluating 25 roles..."`).
+  - Add expandable "Thinking & Tool Log" drawers for full transparency.
 
-- [ ] **2. Targeted Company Query Routing (e.g., "Sarvam AI new postings"):**
-  - Update `agents/scraper_agent.py` and `agents/supervisor_agent.py` to extract company intent from queries.
-  - Dynamically trigger Firecrawl search/scrape for specified companies (e.g. Sarvam AI, Krutrim, PhysicsWallah) instead of relying solely on hardcoded ATS board lists.
+- [ ] **Stream 6: Multi-Turn Conversational Chat Feed (Frontend UX):**
+  - Build `ChatFeed.tsx` in Next.js UI to preserve multi-turn message history threads.
+  - Render user prompt bubbles, assistant text responses, and attached job artifacts in a scrollable chat stream.
 
-- [ ] **3. Scraper Parallelization & Speed Optimization:**
-  - Refactor `agents/scraper_agent.py` to execute Greenhouse, Lever, WWR, and YC scrapes in parallel via `asyncio.gather()`.
-  - Target scrape time reduction from 120s+ to under 15s.
+- [ ] **Stream 7: Experience Seniority Guardrails (Title Matching):**
+  - Parse candidate's experience years (e.g. 3.1 yrs).
+  - Automatically filter out high-seniority titles (`Senior Staff`, `Principal`, `Director`, `VP`, `Chief of Staff`) for candidates with < 5 yrs experience.
+  - Penalize experience gap mismatch in `agents/career_agent.py`.
 
-- [ ] **4. Async Playwright Migration:**
-  - Convert remaining `sync_playwright()` usages in `tools/scraper_tools.py` to `async_playwright()` to eliminate event loop warnings in FastAPI.
+- [ ] **Stream 8: Targeted Company Query Extraction (e.g. "Sarvam AI new postings"):**
+  - Extract company intent from user queries (*Sarvam AI, Krutrim, PhysicsWallah*) in `agents/supervisor_agent.py`.
+  - Trigger targeted Firecrawl search/scrape for specified companies instead of hardcoded default board lists.
+
+- [ ] **Stream 9: Scraper Parallelization & Speed Optimization:**
+  - Refactor `agents/scraper_agent.py` to execute board scrapes concurrently via `asyncio.gather()`, cutting scrape times from 120s+ to < 15s.
+
+- [ ] **Stream 10: Complete Codebase Zero-Hardcoding Audit:**
+  - Re-audit all tools, prompts, default profiles, and parameters to ensure 100% dynamic user-driven execution with zero hardcoded assumptions.

@@ -1,94 +1,146 @@
-# Disha Firecrawl Integration Plan
+# Disha Master Integrated Implementation & Architecture Plan
 
-This plan details the integration of **Firecrawl** (`firecrawl-py` Python SDK / API) into Disha's job ingestion layer as a first-class scraper and extraction backend for complex, JS-rendered career portals (Workday, Instahyre, Wellfound, BeBee, custom `/careers` pages).
+This master document consolidates all planned and active work streams for Disha — combining security, core graph logic, multi-tenant isolation, production deployment, Firecrawl cloud scraping, experience-level guardrails, zero-hardcoding audits, and Claude-style live agent visualization.
 
 ---
 
-## 1. Objective & Architecture
-
-### Why Firecrawl in Disha?
-- **JS Rendering Without Browser Overhead:** Eliminates heavy Playwright container maintenance for JS-rendered career portals.
-- **Native JSON Schema Extraction:** Extracts structured `JobOpening` Pydantic objects directly in a single API call using Firecrawl's LLM extraction engine.
-- **Site Mapping & Discovery:** Maps company `/careers` sub-URLs (`firecrawl.map_url()`) to discover active engineering job postings automatically.
-- **Multi-Source Job Search:** Executes multi-board search queries across career pages using `firecrawl.search()`.
-
-### Scraper Priority Hierarchy
+## 1. Unified Architectural Work Streams
 
 ```text
-Query → Scraper Agent
-       ├─ 1. Greenhouse JSON API (boards-api.greenhouse.io)
-       ├─ 2. Lever Board Scraper (jobs.lever.co)
-       ├─ 3. Firecrawl API (firecrawl.search / scrape / extract) ◄─ [NEW PRIMARY]
-       └─ 4. Playwright Headless Browser (local fallback if no API key)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       DISHA ARCHITECTURE & UX PIPELINE                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                       │
+                  1. Multi-Tenant Session & Zero-Trust Security
+                  ├─ Strict session UUID (disha_user_id) per browser
+                  ├─ SSRF (is_safe_url) & Path Traversal Guard
+                  └─ Prompt Injection (<untrusted_content> XML)
+                                       │
+                                       ▼
+                  2. Dynamic Scraper & Firecrawl Ingestion Layer
+                  ├─ ATS JSON APIs (Greenhouse & Lever)
+                  ├─ Firecrawl Cloud API (search, map_url, scrape)
+                  ├─ Targeted Company Query Extraction (e.g. Sarvam AI)
+                  └─ Parallel Fetching via asyncio.gather() (< 15s)
+                                       │
+                                       ▼
+                  3. Experience Seniority Guardrails & Matching
+                  ├─ Parse candidate experience_years (e.g. 3.1 yrs)
+                  ├─ Filter out Senior Staff, Principal, Director, VP
+                  └─ LLM Resume Judge (evaluate_resume_against_job)
+                                       │
+                                       ▼
+                  4. Claude-Style Agent Visualizer & Chat Feed UI
+                  ├─ Spinning wheels / timers / hourglasses per agent step
+                  ├─ Real-time sub-step status stream (SSE logs)
+                  ├─ Expandable "Thinking / Progress Log" drawers
+                  └─ Multi-Turn Conversational Chat Feed (ChatFeed.tsx)
+                                       │
+                                       ▼
+                  5. Production Deployment & Hybrid Keep-Alive
+                  ├─ Dockerized FastAPI + Next.js 14 Standalone
+                  ├─ Supabase (pgvector) + Render (Docker Web Service)
+                  └─ UptimeRobot (Primary 5m) + GitHub Actions (Secondary)
 ```
 
 ---
 
-## 2. Proposed Changes & New Modules
+## Stream 1: Claude-Style Agent Visualization & Multi-Turn Chat Feed (Frontend UX)
 
-### Component 1: Dependency & Environment Configuration
-#### **[MODIFY] [requirements.txt](file:///home/anmol/Projects/Disha/requirements.txt)**
-- Add `firecrawl-py>=1.0.0`.
+### Objectives:
+- **Live Activity Drawers & Timers:** Replace static *"Planning new steps..."* text with animated spinners, timers (`00:04s`), and live status summaries showing exactly what the agent is doing at any point (similar to Claude / ChatGPT thinking drops).
+- **Multi-Turn Chat Feed (`ChatFeed.tsx`):** Transform single-run dashboard into a true conversational thread where past user prompts, agent text responses, and job artifacts remain visible in a scrollable message history feed.
 
-#### **[MODIFY] [.env.example](file:///home/anmol/Projects/Disha/.env.example)**
-- Add `FIRECRAWL_API_KEY=your_firecrawl_api_key_here`.
-
----
-
-### Component 2: Dedicated Firecrawl Tools Module
-#### **[NEW] [tools/firecrawl_tools.py](file:///home/anmol/Projects/Disha/tools/firecrawl_tools.py)**
-Implement standard LangChain-compatible tools wrapping the `firecrawl-py` SDK:
-
-1. **`fetch_webpage_firecrawl`**:
-   - Calls `firecrawl.scrape_url(url, params={'formats': ['markdown']})`.
-   - Returns clean, script-stripped Markdown content for any JS-heavy page.
-   - Includes SSRF safety validation (`is_safe_url`).
-
-2. **`extract_job_firecrawl`**:
-   - Calls `firecrawl.scrape_url(url, params={'formats': ['extract'], 'extract': {'schema': JobSchema}})` using `JobOpening` schema.
-   - Directly returns parsed `JobOpening` dict without requiring secondary LLM calls.
-
-3. **`map_company_careers_firecrawl`**:
-   - Calls `firecrawl.map_url(url, params={'search': 'engineer|developer|ml|ai'})`.
-   - Returns list of specific job posting URLs under a company's career section.
-
-4. **`search_jobs_firecrawl`**:
-   - Calls `firecrawl.search(query, params={'limit': 10})`.
-   - Performs web-wide role discovery across job sites.
+### Key Components:
+- **[NEW] [frontend/components/chat/AgentExecutionVisualizer.tsx](file:///home/anmol/Projects/Disha/frontend/components/chat/AgentExecutionVisualizer.tsx):**
+  - Displays pipeline stages: `Supervisor → Scraper → Career Strategy → Guardrails → Synthesize`.
+  - Shows spinning wheels / hourglass icons and real-time timers for active agents.
+  - Expandable drawer containing live sub-step logs:
+    - `⏳ [Scraper] Searching Firecrawl for 'Sarvam AI new postings'... (00:03s)`
+    - `⏳ [Scraper] Ingesting 28 jobs from Y Combinator WorkAtAStartup... (00:06s)`
+    - `⏳ [Career Strategy] Evaluating candidate profile (~3.1 yrs exp) against 25 openings... (00:09s)`
+- **[NEW] [frontend/components/chat/ChatFeed.tsx](file:///home/anmol/Projects/Disha/frontend/components/chat/ChatFeed.tsx):**
+  - Renders user prompt bubbles and assistant message turns chronologically.
+  - Embeds interactive artifact panels (Top Matches Grid, Summary, All Openings) inside assistant response blocks.
 
 ---
 
-### Component 3: Integration into Scraper Agent
-#### **[MODIFY] [agents/scraper_agent.py](file:///home/anmol/Projects/Disha/agents/scraper_agent.py)**
-- Check for `FIRECRAWL_API_KEY` in environment.
-- When scraping non-ATS company URLs or running multi-source search:
-  - Prefer `extract_job_firecrawl` / `fetch_webpage_firecrawl`.
-  - Fall back to Playwright only if `FIRECRAWL_API_KEY` is not configured.
+## Stream 2: Experience Seniority Guardrails & Title Matching
+
+### Objectives:
+- Eliminate irrelevant senior-level listings (*"Senior Staff Software Engineer"*, *"Director"*, *"Chief of Staff"*) for candidates with junior/mid-level experience.
+
+### Key Rules:
+- **Candidate Experience Extraction:** Automatically derive `experience_years` from uploaded resume or profile (e.g. 3.1 years).
+- **Seniority Exclusion Filter:**
+  - If `candidate.experience_years < 5.0`: Automatically exclude titles containing `Senior Staff`, `Staff Engineer`, `Principal`, `Director`, `Vice President`, `VP`, `Head of`, `Chief of Staff`, `Lead (10+ yrs)`.
+  - Target matching roles: `AI Engineer`, `Machine Learning Engineer`, `Software Development Engineer II (SDE-2)`, `Associate AI Engineer`, `Applied AI Specialist`.
+- **Career Agent Score Penalty:** Apply heavy penalty in `agents/career_agent.py` for jobs requiring experience > 2 years above the candidate's current profile.
 
 ---
 
-### Component 4: Testing & Verification
-#### **[NEW] [tests/test_firecrawl.py](file:///home/anmol/Projects/Disha/tests/test_firecrawl.py)**
-- **Unit Tests:** Mocked tests verifying schema extraction, URL mapping, and error handling.
-- **Integration Test:** Live scraping test when `FIRECRAWL_API_KEY` is set in environment.
+## Stream 3: Zero Hardcoding & Complete Context Audit
+
+### Objectives:
+- Re-audit the entire codebase to guarantee **100% dynamic, user-agnostic execution**. Zero hardcoded preferences, zero hardcoded company assumptions.
+
+### Audit Checklist:
+- **`profiles/default.yaml`**: Standardize on empty fallback defaults (`skills: []`, `target_cities: []`).
+- **`tools/profile.py`**: Enforce preference resolution priority: `state["user_profile"]` (request) → `user_memory_{user_id}.json` (user session) → `profiles/default.yaml` (empty product defaults).
+- **Tenant Isolation:** Ensure `user_id` is consistently passed from Next.js client (`disha_user_id`) to all backend endpoints (`/api/profile`, `/api/profile/resume`, `/api/chat/stream`).
 
 ---
 
-## 3. Verification & Execution Plan
+## Stream 4: Targeted Company Query Extraction & Firecrawl Ingestion
 
-1. Install `firecrawl-py` package:
+### Objectives:
+- Resolve queries targeting specific companies (*"Sarvam AI new postings"*, *"PhonePe job openings"*) dynamically instead of scraping generic hardcoded board lists.
+
+### Implementation:
+- **Company Intent Extractor:** Update `agents/supervisor_agent.py` and `agents/scraper_agent.py` to extract company names from queries.
+- **Firecrawl Targeted Ingestion:** For specific company queries, bypass generic boards and execute `firecrawl.search("Sarvam AI jobs India")` or `firecrawl.map_url("https://www.sarvam.ai/careers")`.
+- **Parallel Scraper Execution:** Refactor `agents/scraper_agent.py` to run board scrapers concurrently via `asyncio.gather()`, cutting scrape times from 120s+ to under 15s.
+
+---
+
+## Stream 5: Production Deployment & Hybrid Keep-Alive Architecture
+
+### Objectives:
+- Maintain 24/7 production deployment using managed PaaS services and robust uptime monitoring.
+
+### Architecture:
+- **Frontend:** Next.js 14 App deployed on **Vercel** (`output: "standalone"`).
+- **Backend API:** FastAPI + LangGraph containerized on **Render** (Docker Web Service with Playwright Chromium).
+- **Database:** Managed PostgreSQL + `pgvector` on **Supabase** (`storage/db.py` ORM with 768d cosine distance queries).
+- **Hybrid Keep-Alive Strategy:**
+  - **Primary:** **UptimeRobot** 5-minute HTTP monitor hitting `https://disha-api.onrender.com/health` (keeps Render warm & alerts on downtime).
+  - **Secondary:** **GitHub Actions Workflow** ([`.github/workflows/keep_alive.yml`](file:///home/anmol/Projects/Disha/.github/workflows/keep_alive.yml)) executing `curl` crons every 14 minutes.
+
+---
+
+## Stream 6: Security Hardening & Zero-Trust Defense
+
+### Completed Defenses:
+- **SSRF Protection:** `is_safe_url()` blocking private IP ranges (`127.0.0.1`, `10.0.0.0/8`, `169.254.169.254`).
+- **Path Traversal Guard:** `validate_board_slug()` enforcing regex `^[a-zA-Z0-9_-]+$`.
+- **CORS & Rate Limiting:** `ALLOWED_ORIGINS` CORS restrictions and token bucket rate limiter (`check_rate_limit()`).
+- **Prompt Injection Defense:** `<job_description>` and `<candidate_resume>` XML tag framing in `tools/career_tools.py`.
+
+---
+
+## 2. Verification & Testing Plan
+
+1. **Seniority Guardrail Verification:** Run query with 3.1 yrs experience profile and verify `Senior Staff`, `Director`, and `Chief of Staff` roles are filtered out.
+2. **Claude-Style Visualizer Verification:** Test timers, spinners, and expandable thinking drawers during live chat streams.
+3. **Multi-Turn Chat Feed Verification:** Verify previous conversation turns remain visible in the UI history.
+4. **Targeted Scrape Verification:** Query *"Sarvam AI new postings"* and verify Firecrawl fetches Sarvam AI job listings.
+5. **Full Test Suite:**
    ```bash
-   pip install firecrawl-py
-   ```
-2. Create `tools/firecrawl_tools.py` and register tools.
-3. Update `agents/scraper_agent.py` to route custom URL scrapes through Firecrawl.
-4. Run test suite:
-   ```bash
-   PYTHONPATH=. .venv/bin/pytest tests/test_firecrawl.py
+   PYTHONPATH=. .venv/bin/pytest tests/
    ```
 
 ---
 
 ## User Review Required
 
-Please review this plan. Once approved, I will begin implementing the `firecrawl-py` integration!
+Please review this master integrated plan covering all 6 architectural streams. Once approved, implementation will proceed systematically across backend guardrails and frontend visualization!
