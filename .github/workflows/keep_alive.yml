@@ -15,7 +15,7 @@ jobs:
         run: |
           if [ -n "${{ secrets.RENDER_BACKEND_URL }}" ]; then
             echo "Pinging Render Backend..."
-            curl -s "${{ secrets.RENDER_BACKEND_URL }}/health" > /dev/null
+            curl -s --connect-timeout 10 --max-time 30 "${{ secrets.RENDER_BACKEND_URL }}/health" > /dev/null
           else
             echo "RENDER_BACKEND_URL secret not set, skipping."
           fi
@@ -24,7 +24,7 @@ jobs:
         run: |
           if [ -n "${{ secrets.SUPABASE_URL }}" ] && [ -n "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
             echo "Pinging Supabase REST API..."
-            curl -s -X GET "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+            curl -s --connect-timeout 10 --max-time 30 -X GET "${{ secrets.SUPABASE_URL }}/rest/v1/" \
                  -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
                  -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" > /dev/null
           else
