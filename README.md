@@ -2,6 +2,8 @@
 
 > **Market intelligence and career optimization for India's AI/ML job landscape.**
 
+**Engineered by [Anmol Sharma](https://linkedin.com/in/anmolsharma152)** | **[GitHub Profile](https://github.com/anmolsharma152)** | **[Live Portfolio](https://anmolsharma152.vercel.app)**
+
 Disha is a multi-agent system that finds roles, scores them against a personal profile, analyzes companies, and can propose learning roadmaps — not generic chat, but structured matches with compensation fit, skill overlap, and explicit reasoning.
 
 **Portfolio:** Disha owns *job market fit* only. Not ops (Ozyman), not FSRS (Scholar-Loop), not creative synthesis (IdeaForge). See [docs/portfolio-product-boundaries.md](./docs/portfolio-product-boundaries.md).
