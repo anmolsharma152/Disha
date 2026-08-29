@@ -12,6 +12,8 @@ Disha is a multi-agent system that finds roles, scores them against a personal p
 
 | Doc | Purpose |
 |-----|---------|
+| **[ARCHITECTURE.md](./ARCHITECTURE.md)** | Technical design, architecture, decisions & trade-offs |
+| **[TASKS.md](./TASKS.md)** | Roadmap, completed milestones & active tasks |
 | **[docs/STATUS.md](./docs/STATUS.md)** | Handoff — what works, gaps, resume |
 | [docs/setup.md](./docs/setup.md) | Env, backend/frontend run |
 | [docs/deployment.md](./docs/deployment.md) | Docker & cloud deployment (Vercel, PaaS, VPS) |

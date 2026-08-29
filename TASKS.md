@@ -71,3 +71,21 @@ This document tracks completed features, active development items, and upcoming 
   - Update supervisor agent to detect explicit company queries (e.g. *"Sarvam AI new postings"*, *"Krutrim LLM roles"*).
 - [ ] **Targeted Firecrawl Dispatch:**
   - Bypass generic default board lists and dispatch targeted Firecrawl searches directly to the specified company's careers portal.
+
+---
+
+## 3. Verification Commands
+
+```bash
+# 1. Run full backend test suite
+PYTHONPATH=. .venv/bin/pytest tests/ -v
+
+# 2. Run security-specific tests
+PYTHONPATH=. .venv/bin/pytest tests/test_security.py -v
+
+# 3. Run Firecrawl integration tests
+PYTHONPATH=. .venv/bin/pytest tests/test_firecrawl.py -v
+
+# 4. Verify Next.js frontend production build
+cd frontend && npm run build
+```
