@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
 import feedparser
+import requests
 
 from tools.job_cache import get_cached_jobs, set_cached_jobs
 from tools.job_normalizer import normalize_wwr_job, validate_job_dict
@@ -105,13 +106,21 @@ def fetch_wwr_jobs(
             return cached[:max_results]
 
     raw_entries: List[Dict[str, Any]] = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; DishaBot/1.0; +https://github.com/anmolsharma152/Disha)",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    }
     for cat in cats:
         url = WWR_CATEGORIES.get(cat) or WWR_CATEGORIES["programming"]
         logger.info("[WWR] Fetching RSS category=%s", cat)
         try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries or []:
-                raw_entries.append(_entry_to_raw(entry, cat))
+            resp = requests.get(url, headers=headers, timeout=8)
+            if resp.status_code == 200:
+                feed = feedparser.parse(resp.content)
+                for entry in feed.entries or []:
+                    raw_entries.append(_entry_to_raw(entry, cat))
+            else:
+                logger.warning("[WWR] category %s returned HTTP %d", cat, resp.status_code)
         except Exception as e:
             logger.warning("[WWR] category %s failed: %s", cat, e)
 
