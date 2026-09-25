@@ -390,11 +390,18 @@ async def chat_stream_endpoint(request: ChatRequest):
     )
 
 
-# ──────────────────────────────────────────────────────────────
-# Run with: uvicorn api.server:app --reload --host 0.0.0.0 --port 8000
-# ──────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     import uvicorn
+    from pathlib import Path
+    root_dir = Path(__file__).resolve().parent.parent
+    if str(root_dir) not in sys.path:
+        sys.path.insert(0, str(root_dir))
+    uvicorn.run(
+        "api.server:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=True,
+        reload_dirs=["api", "agents", "tools", "storage"],
+        reload_excludes=["data/*", "frontend/*", "*.json", "logs/*"],
+    )
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
