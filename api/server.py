@@ -352,7 +352,18 @@ async def chat_stream_endpoint(request: ChatRequest):
                     )
                     event_data["citations"] = state.get("citations", [])
 
-                yield f"data: {json.dumps(event_data)}\n\n"
+                # Format as SSE with robust serialization for UUIDs/datetimes/Pydantic
+                def _to_jsonable(obj):
+                    if hasattr(obj, "model_dump"):
+                        return obj.model_dump()
+                    elif isinstance(obj, list):
+                        return [_to_jsonable(x) for x in obj]
+                    elif isinstance(obj, dict):
+                        return {k: _to_jsonable(v) for k, v in obj.items()}
+                    return obj
+
+                clean_event_data = _to_jsonable(event_data)
+                yield f"data: {json.dumps(clean_event_data, default=str)}\n\n"
 
                 # Stop if completed
                 if state.get("routing_key") == "end":
@@ -360,7 +371,7 @@ async def chat_stream_endpoint(request: ChatRequest):
 
         except Exception as e:
             logger.exception(f"Stream error: {e}")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield f"data: {json.dumps({'error': str(e)}, default=str)}\n\n"
 
     return StreamingResponse(
         event_generator(),
