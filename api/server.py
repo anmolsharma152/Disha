@@ -336,9 +336,15 @@ async def chat_stream_endpoint(request: ChatRequest):
                     "session_id": session_id,
                 }
 
-                # Include structured job data when available
+                # Include structured job data when available (slimmed for fast network transfer)
                 if state.get("job_openings"):
-                    event_data["job_openings"] = state["job_openings"]
+                    def _slim_job(j):
+                        d = j.model_dump() if hasattr(j, "model_dump") else dict(j) if isinstance(j, dict) else j
+                        if isinstance(d, dict):
+                            for heavy_key in ("description_raw", "description_clean", "requirements_raw", "benefits_raw"):
+                                d.pop(heavy_key, None)
+                        return d
+                    event_data["job_openings"] = [_slim_job(job) for job in state["job_openings"]]
 
                 # Include structured career recommendations when available
                 if state.get("career_recommendations"):
